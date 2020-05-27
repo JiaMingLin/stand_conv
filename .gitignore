@@ -30,3 +30,17 @@
 *.exe
 *.out
 *.app
+
+solution*
+
+output
+repo
+vivado*
+.apc
+Debug
+.cproject
+.project
+.settings
+.vivado*
+*HLS
+HLS*
