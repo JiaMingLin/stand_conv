@@ -3,13 +3,12 @@
 ## Please DO NOT edit it.
 ## Copyright (C) 1986-2018 Xilinx, Inc. All Rights Reserved.
 ############################################################
+set hls_dir [lindex $argv 2]
 
-set pwd [pwd]
-
-open_project $pwd/NLR_HLS
+open_project -reset HLS_PROJ
 set_top DoCompute
-add_files $pwd/top.cpp
-add_files $pwd/top.h
+add_files ${hls_dir}/top.cpp
+add_files ${hls_dir}/top.h
 open_solution "solution1"
 set_part {xczu3cg-sbva484-1-e} -tool vivado
 create_clock -period 5 -name default
