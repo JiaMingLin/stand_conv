@@ -244,14 +244,14 @@ int main(){
 
 int main(){
 
-	int Tr = 4, Tc = 4;
+	int Tr = InSize, Tc = InSize;
 	int h=Tr,w=Tc,in=Ti, out=To;
 	int ker_size = 3;
 	int stride = 1;
-	int out_h = divide_ceil(h, stride);
-	int out_w = divide_ceil(w, stride);
-	int out_Tr = divide_ceil(Tr, stride);
-	int out_Tc = divide_ceil(Tc, stride);
+	int out_h = divide_ceil(h, stride)-2;
+	int out_w = divide_ceil(w, stride)-2;
+	int out_Tr = divide_ceil(Tr, stride)-2;
+	int out_Tc = divide_ceil(Tc, stride)-2;
 	int padding = 1;
 	data_t act[in][h][w];
 	data_t weight[ker_size][ker_size][in][out];
@@ -259,10 +259,11 @@ int main(){
 	data_t ***hw_result = newFMs(out, out_h, out_w);
 
 	// initialize activation
+
 	for(int i = 0; i < h; i++){
 		for(int j = 0; j < w; j++){
 			for(int k = 0; k < in; k++){
-				act[k][i][j] = rand() % 256;//;
+				act[k][i][j] = i*w*in + j*in + k;//i*Tc*Ti + j*Ti + k;
 			}
 		}
 	}
@@ -272,7 +273,11 @@ int main(){
 		for(int j = 0 ; j < ker_size; j++){
 			for(int k_out = 0; k_out < out; k_out++){
 				for(int k_in = 0; k_in < in; k_in++){
-					weight[i][j][k_in][k_out] = rand() % 256;
+					weight[i][j][k_in][k_out] =
+							i * ker_size * in * out +
+							j * in * out +
+							k_out * in +
+							k_in;
 				}
 			}
 		}
@@ -286,10 +291,12 @@ int main(){
 				for(int k_in = 0; k_in < in; k_in++){
 					for(int k_i = -1; k_i < ker_size-1; k_i++){
 						for(int k_j = -1; k_j < ker_size-1; k_j++){
-							if((i*stride+k_i >= 0 && j*stride+k_j >= 0) && (i*stride+k_i < h && j*stride+k_j < w)){
-								partial_sum += weight[k_i+1][k_j+1][k_in][k_out]
-											* act[k_in][i*stride+k_i][j*stride+k_j];
-							}
+//							if((i*stride+k_i >= 0 && j*stride+k_j >= 0) && (i*stride+k_i < h && j*stride+k_j < w)){
+//								partial_sum += weight[k_i+1][k_j+1][k_in][k_out]
+//											* act[k_in][i*stride+k_i][j*stride+k_j];
+//							}
+							partial_sum += weight[k_i+1][k_j+1][k_in][k_out]
+																		* act[k_in][i*stride+k_i][j*stride+k_j];
 						}
 					}
 				}
@@ -311,19 +318,20 @@ int main(){
 		}
 	}
 
+
 	for(int i = 0; i < ker_size; i++){
 		for(int j = 0; j < ker_size; j++){
 			for(int h = 0; h < To; h++){
 				for(int k = 0; k < Ti; k++){
 					hw_wgt[i*ker_size*To + j*To + h].data[k] = weight[i][j][k][h];
-	//				hw_wgt[i][j][h].data[k] = weight[i][j][k][h];
+//					hw_wgt[i][j][h].data[k] = weight[i][j][k][h];
 				}
 			}
 		}
 	}
 
 
-	DoCompute(hw_input,hw_output,hw_wgt, Tr, Tc, ker_size, stride, 6);
+	DoCompute(hw_input,hw_output,hw_wgt, Tr, Tc, ker_size, 4);
 
 	row_t<data_t, To> out_word;
 	for(int i = 0; i < out_h; i++){
@@ -335,16 +343,17 @@ int main(){
 		}
 	}
 
-//	for(int i = 0 ; i < out_h; i++){
-//		for(int j = 0; j < out_w; j++){
-//
-//			for(int k = 0; k < out; k++){
-//				cout<< hw_result[i][j][k] << ", ";
-//			}
-//			cout << endl;
-//		}
-//		cout << endl;
-//	}
+
+	for(int i = 0 ; i < out_h; i++){
+		for(int j = 0; j < out_w; j++){
+
+			for(int k = 0; k < out; k++){
+				cout<< hw_result[i][j][k] << ", ";
+			}
+			cout << endl;
+		}
+		cout << endl;
+	}
 
 	int err = 0;
 	for(int k = 0; k < out; k++){
@@ -355,10 +364,10 @@ int main(){
 					err++;
 				}
 				cout << sw_result[i][j][k] << ":" << hw_result[i][j][k] << ", ";
+//				cout << output[i][j][k] << ", ";
 			}
 			printf("\n");
 		}
 	}
 	return err;
-
 }

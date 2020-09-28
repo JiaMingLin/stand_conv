@@ -44,3 +44,5 @@ Debug
 .vivado*
 *HLS
 HLS*
+.Xil
+.dat

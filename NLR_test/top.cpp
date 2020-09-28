@@ -23,6 +23,7 @@ void DoCompute(
 
 #pragma HLS INTERFACE s_axilite port=return bundle=CTRL_BUS
 #pragma HLS INTERFACE m_axi port=act offset=slave bundle=INPUT
+#pragma HLS INTERFACE m_axi port=raw_wgt offset=slave bundle=INPUT
 #pragma HLS INTERFACE m_axi port=psum_output offset=slave bundle=OUTPUT
 //#pragma HLS INLINE
 #pragma HLS DATA_PACK variable=act
@@ -52,10 +53,10 @@ void DoCompute(
 	Tr = 28;
 	Tc = 28;
 
-	for(int ki = 0; ki < k1; ki++){
-		for(int kj = 0; kj < k2; kj++){
-			for(int r = 0; r < Tr; r++){
-				for(int c = 0; c < Tc; c++){
+	LOOP_KI:for(int ki = 0; ki < k1; ki++){
+		LOOP_KJ:for(int kj = 0; kj < k2; kj++){
+			LOOP_TR:for(int r = 0; r < Tr; r++){
+				LOOP_TC:for(int c = 0; c < Tc; c++){
 #pragma HLS PIPELINE
 
 					for(int o = 0; o < To; o++){

@@ -7,7 +7,7 @@
 using namespace std;
 using namespace hls;
 
-//#define CSIM_FLAG
+#define CSIM_FLAG
 
 
 #define DATAWIDTH 128
@@ -23,14 +23,13 @@ using namespace hls;
 
 #define InSize 30
 #define OutSize 30
-#define To 32 // output channel
-#define Ti 32 // input channel
+#define To 16 // output channel
+#define Ti 16 // input channel
 #endif
 
 
-#define KerSize 3
+#define KerSize 7
 #define WGT_CHUNK_NUM 1
-#define HARDCODE_VAL 1
 
 typedef ap_uint<PRECISION> data_t;
 typedef ap_uint<32> psum_t;
@@ -54,10 +53,10 @@ struct block_t{
 };
 
 void DoCompute(
-		row_t<data_t, Ti> *input,
-		row_t<data_t, To> *output,
-		row_t<data_t, Ti> *raw_wgt,
-		int Tr, int Tc, int ker_size, int stride, int test);
+		row_t<data_t, Ti> input[InSize*InSize],
+		row_t<data_t, To> output[OutSize*OutSize],
+		row_t<data_t, Ti> raw_wgt[KerSize][KerSize][To],
+		int Tr, int Tc, int test);
 
 void Conv(
 		row_t<data_t, Ti> wgt[KerSize][KerSize][To],
@@ -97,20 +96,4 @@ void buff_monitor_1D(T buff[depth]){
 		cout << buff[i] << ", ";
 	}
 	cout << endl;
-}
-
-template<typename T, unsigned H, unsigned W, unsigned C>
-void InitTensor(row_t<T, C> tensor[H][W]){
-	row_t<T, C> word;
-	for(int k = 0; k < C; k++){
-#pragma HLS UNROLL
-		word.data[k] = 0;
-	}
-
-	for(int i = 0; i < H; i++){
-		for(int j = 0; j < W; j++){
-#pragma HLS PIPELINE
-			tensor[i][j] = word;
-		}
-	}
 }
