@@ -34,7 +34,6 @@ using namespace hls;
 #define MAX_TILE_IN_HEIGHT MAX_TILE_OUT_HEIGHT*MAX_STRIDE + (MAX_KERNEL_SIZE-MAX_STRIDE)
 #define MAX_TILE_IN_WIDTH MAX_TILE_OUT_WIDTH*MAX_STRIDE + (MAX_KERNEL_SIZE-MAX_STRIDE)
 
-
 #ifdef ULTRA96
 
 #define To 16 // output channel
@@ -110,7 +109,7 @@ void WriteOutput(
 		uintAcc psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH],
 		int tidY, int tidX, int tidOut,
 		int Tr, int Tc, int inRow, int inCol,
-		int poolWin, float multiplier, int nextFMZP);
+		int poolWin);
 
 void WriteDRAM(
 		uint128 *output, uintTo buffer,
@@ -275,7 +274,7 @@ void WGTInit(data_t wgt[kerSize][kerSize][outChannel][inChannel], data_t zeroPoi
 							k_out * kerSize * kerSize * inChannel + i * kerSize * inChannel + j * inChannel + k_in
 							- zeroPoint;
 						}else{
-							wgt[i][j][k_out][k_in] = 1 - zeroPoint;
+							wgt[i][j][k_out][k_in] = 1- zeroPoint;
 						}
 					}
 				}

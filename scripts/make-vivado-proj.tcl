@@ -1,20 +1,20 @@
-if {$argc != 4} {
-  puts "Expected: <proj_name> <proj_dir> <xdc_dir> <ip_repo>"
+if {$argc != 5} {
+  puts "Expected: <proj_name> <proj_dir> <part> <xdc_dir> <ip_repo> "
   exit
 }
 
 # project name, target dir and FPGA part to use
 set config_proj_name [lindex $argv 0]
 set config_proj_dir [lindex $argv 1]
-set config_proj_part "xczu3eg-sbva484-1-e"
+set config_proj_part [lindex $argv 2]
 
 # other project config
-
-set xdc_dir [lindex $argv 2]
-set ip_repo [lindex $argv 3]
+set xdc_dir [lindex $argv 3]
+set ip_repo [lindex $argv 4]
 
 puts "config_proj_name: ${config_proj_name}"
 puts "config_proj_dir: ${config_proj_dir}"
+puts "config_proj_part: ${config_proj_part}"
 puts "xdc_dir:  ${xdc_dir}"
 puts "ip_repo: ${ip_repo}"
 

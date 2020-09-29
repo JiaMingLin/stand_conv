@@ -1,5 +1,6 @@
 #!/bin/bash
 HLS_ROOT=$1
+SCALE=$2
 PROJECT_PATH=$HLS_ROOT/HLS_PROJ/
 
 if [ ! -d "$HLS_ROOT" ]; then
@@ -7,11 +8,15 @@ if [ ! -d "$HLS_ROOT" ]; then
 	exit
 fi
 
-cd $HLS_ROOT
-vivado_hls -f $HLS_ROOT/script.tcl $HLS_ROOT/
+PART="xczu3eg-sbva484-1-e"
+if [ "$2" = "medium" ]; then
+	PART="xczu7ev-ffvc1156-2-e"
+fi
 
-REPO_PATH=$PROJECT_PATH/repo
-IP_PATH=$PROJECT_PATH/solution1/impl/ip/xilinx_com_hls_DoCompute_1_0.zip
+vivado_hls -f $HLS_ROOT/script.tcl $HLS_ROOT/ $SCALE $PART
+
+REPO_PATH=$PROJECT_PATH/repo/$SCALE
+IP_PATH=$PROJECT_PATH/$SCALE/impl/ip/xilinx_com_hls_DoCompute_1_0.zip
 
 if [ ! -d "$REPO_PATH" ]; then
 	mkdir $REPO_PATH

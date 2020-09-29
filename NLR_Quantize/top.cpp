@@ -20,8 +20,7 @@ void DoCompute(
 		uint128 *ofm,
 		uint128 *raw_wgt,
 		int inRow, int inCol, int inChannel, int outChannel,
-		int Tr, int Tc, int kerSize, int stride, int poolWin,
-		float multiplier, int currFMZP, int nextFMZP){
+		int Tr, int Tc, int kerSize, int stride, int poolWin){
 
 #pragma HLS INTERFACE m_axi depth=4096 port=ifm offset=slave bundle=INPUT
 #pragma HLS INTERFACE m_axi depth=2304 port=raw_wgt offset=slave  bundle=INPUT
@@ -36,9 +35,6 @@ void DoCompute(
 #pragma HLS INTERFACE s_axilite port=ker_size bundle=CTRL_BUS
 #pragma HLS INTERFACE s_axilite port=stride bundle=CTRL_BUS
 #pragma HLS INTERFACE s_axilite port=poolWin bundle=CTRL_BUS
-#pragma HLS INTERFACE s_axilite port=multiplier bundle=CTRL_BUS
-#pragma HLS INTERFACE s_axilite port=currFMZP bundle=CTRL_BUS
-#pragma HLS INTERFACE s_axilite port=nextFMZP bundle=CTRL_BUS
 
 	uintTi act[MAX_TILE_IN_HEIGHT][MAX_TILE_IN_WIDTH];
 	uintAcc psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH];
@@ -75,7 +71,7 @@ void DoCompute(
 						ifm, act,
 						inRow, inCol, Tr, Tc,
 						tidY, tidX, tidIn,
-						inTr, inTc, padding, currFMZP);
+						inTr, inTc, padding);
 
 //					IFMMonitorTile(act, tidY, tidX, tidIn, inTr, inTc);
 
@@ -97,7 +93,7 @@ void DoCompute(
 				WriteOutput(ofm, psum_output,
 					tidY, tidX, tidOut,
 					Tr, Tc, inRow, inCol,
-					poolWin, multiplier, nextFMZP);
+					poolWin);
 
 			}
 		}
@@ -130,7 +126,7 @@ void LoadActivation(
 		int inRow, int inCol,
 		int Tr, int Tc, int tidY, int tidX, int tidIn,
 		int inTr, int inTc,
-		int padding, data_t currFMZP){
+		int padding){
 
 	// anchor on the feature map plane
 	int anchorX = tidX * Tc - padding;
@@ -150,18 +146,18 @@ void LoadActivation(
 			if(notBoundary(i,j,anchorX,anchorY,inRow,inCol)){
 #ifdef ULTRA96
 				for(int k = 0; k < WORD_LENGTH; k++){
-					buffer.range((k+1)*PREC-1, k*PREC) = ifm[lineOffset].range((k+1)*PREC-1, k*PREC)-currFMZP;
+					buffer.range((k+1)*PREC-1, k*PREC) = ifm[lineOffset].range((k+1)*PREC-1, k*PREC);
 //					buffer.data[k] = 1;
 				}
 #else
 				for(int k = 0; k < WORD_LENGTH; k++){
-					buffer.range((k+1)*PREC-1, k*PREC) = ifm[lineOffset].range((k+1)*PREC-1, k*PREC)-currFMZP;
+					buffer.range((k+1)*PREC-1, k*PREC) = ifm[lineOffset].range((k+1)*PREC-1, k*PREC);
 //					buffer.data[k] = 1;
 				}
 				buffer >> DATAWIDTH;
 
 				for(int k = 0; k < WORD_LENGTH; k++){
-					buffer.range((k+1)*PREC-1, k*PREC) = ifm[lineOffset+1].range((k+1)*PREC-1, k*PREC)-currFMZP;
+					buffer.range((k+1)*PREC-1, k*PREC) = ifm[lineOffset+1].range((k+1)*PREC-1, k*PREC);
 //					buffer.data[k] = 1;
 				}
 #endif
@@ -213,10 +209,6 @@ void LoadWeight(
 	}
 }
 
-data_t rescale(psum_t ofmData, float multiplier, int nextFMZP){
-#pragma HLS INLINE
-	return (data_t)multiplier*ofmData + nextFMZP;
-}
 
 data_t ReluMAX(data_t a, data_t b, data_t c, data_t d){
 	data_t t1; data_t t2;
@@ -236,9 +228,7 @@ void WriteOutput(
 		uintAcc psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH],
 		int tidY, int tidX, int tidOut,
 		int Tr, int Tc, int row, int column,
-		int poolWin,
-		float multiplier, int nextFMZP
-		){
+		int poolWin){
 
 	int outRow = divide_ceil(row, poolWin);
 	int outCol = divide_ceil(column, poolWin);
@@ -261,8 +251,7 @@ void WriteOutput(
 			for(int x = 0; x < Tc; x++){
 #pragma HLS PIPELINE ii = 1
 				for(int o = 0; o < To; o++){
-					buffer.range((o+1)*PREC-1, o*PREC) =
-							rescale(psum_output[y][x].range((o+1)*ACC_PREC-1, o*ACC_PREC), multiplier, nextFMZP);
+					buffer.range((o+1)*PREC-1, o*PREC) = (data_t)psum_output[y][x].range((o+1)*ACC_PREC-1, o*ACC_PREC);
 				}
 				// write to output
 				WriteDRAM(ofm, buffer, wordOffset);
@@ -280,11 +269,10 @@ void WriteOutput(
 				
 				for(int o = 0; o < To; o++){
 #pragma UNROLL
-					// re-scale then pooling
-					data_t xx = rescale(psum_output[y][x].range((o+1)*ACC_PREC-1, o*ACC_PREC), multiplier, nextFMZP);
-					data_t xy = rescale(psum_output[y+1][x].range((o+1)*ACC_PREC-1, o*ACC_PREC), multiplier, nextFMZP);
-					data_t yx = rescale(psum_output[y][x+1].range((o+1)*ACC_PREC-1, o*ACC_PREC), multiplier, nextFMZP);
-					data_t yy = rescale(psum_output[y+1][x+1].range((o+1)*ACC_PREC-1, o*ACC_PREC), multiplier, nextFMZP);
+					data_t xx = (data_t)psum_output[y][x].range((o+1)*ACC_PREC-1, o*ACC_PREC);
+					data_t xy = (data_t)psum_output[y+1][x].range((o+1)*ACC_PREC-1, o*ACC_PREC);
+					data_t yx = (data_t)psum_output[y][x+1].range((o+1)*ACC_PREC-1, o*ACC_PREC);
+					data_t yy = (data_t)psum_output[y+1][x+1].range((o+1)*ACC_PREC-1, o*ACC_PREC);
 					data_t d = ReluMAX(xx, xy, yx, yy);
 					buffer.range((o+1)*PREC-1, o*PREC) = d.range(PREC-1,0);
 				}
