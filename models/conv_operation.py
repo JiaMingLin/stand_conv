@@ -123,6 +123,21 @@ def sw_pooling(ifm, poolWin):
         ofm[i,:,:] = skimg.block_reduce(a, (poolWin,poolWin), np.max)
     return ofm
 
+# ifm is row major
+def sw_flatten(ifm):
+    # flatten ifm
+    channel = ifm.shape[0]
+    height = ifm.shape[1]
+    width = ifm.shape[2]
+    flatten_ifm = ifm.reshape((channel * height * width, -1))
+    return flatten_ifm
+
+# flatten_ifm: (in_channel, 1)
+# wgt shape:(out_channel, in_channel, 1, 1)
+def sw_linear(ifm, wgt):
+    return wgt[:,:,0,0].dot(ifm)
+
+
 # linear array to row major
 def convertOFMOutput(ofm_buff, depth, WORD_LENGTH, out_channel, height, width, Ti):
     # (L, WORD_LENGTH), L = (in_channel/Ti)*height*width*(Ti/WORD_LENGTH)
@@ -138,13 +153,13 @@ def compareResult(sw_output, hw_output, channel, height, width):
     err = 0
     str = ""
     for i in range(channel):
-        print("Channel Index = ",i)
+        # print("Channel Index = ",i)
         for y in range(height):
             for x in range(width):
                 str += "{}: {}, ".format(sw_output[i][y][x], hw_output[i][y][x])
                 if sw_output[i][y][x] != hw_output[i][y][x]:
                     err += 1
-            print(str)
+            # print(str)
             str = ""
 
     return err
@@ -183,11 +198,11 @@ if __name__ == "__main__":
     xlnk.xlnk_reset()
 
     in_channel = 16; out_channel = 64
-    inRow = 32; inCol = 32
+    inRow = 128; inCol = 128
     Tr = 8; Tc = 8
     WORD_LENGTH = 16
     kerSize = 3; stride = 1
-    poolWin = 2
+    poolWin = 1
     outRow = int(ceil(inRow/poolWin)); outCol= int(ceil(inCol/poolWin))
     ifm_depth = int((in_channel*inRow*inCol)/WORD_LENGTH)#300000
     ofm_depth = int((out_channel*outRow*outCol)/WORD_LENGTH)#300000
@@ -195,7 +210,7 @@ if __name__ == "__main__":
     To = 16; Ti = 16
 
     print("Allocating memory...")
-    ifm = initIFM(in_channel,inRow,inCol, mode = "random")
+    ifm = initIFM(in_channel,inRow,inCol, mode = "random")  # row major
     ofm = initIFM(out_channel,outRow,outCol, mode = "empty")
     wgt = initWGT(out_channel, in_channel, kerSize, mode = "random")
 
@@ -215,14 +230,17 @@ if __name__ == "__main__":
     hw_begin = time.perf_counter()
     HWConv.hw_conv(ifm_buff, ofm_buff, wgt_buff, inRow, inCol, \
         in_channel, out_channel, Tr, Tc, kerSize, stride, poolWin)
-    print("Hardware Time: ", time.perf_counter() - hw_begin)
+    print("Hardware Time(ms): ", (time.perf_counter() - hw_begin)*1000)
 
     # software
     print("Software Compute...")
     sw_begin = time.perf_counter() 
-    sw_ofm = scipy_conv(ifm, wgt, stride)
-    scipy_result = sw_pooling(sw_ofm,poolWin)
-    print("Software Time: ", time.perf_counter() - sw_begin)
+    scipy_result = scipy_conv(ifm, wgt, stride)
+    # scipy_result = sw_pooling(sw_ofm,poolWin)
+    # flatten_ifm = sw_flatten(ifm)
+    # scipy_result = sw_linear(flatten_ifm, wgt)
+    # sw_result = np.expand_dims(scipy_result, axis = 2)
+    print("Software Time(ms): ", (time.perf_counter() - sw_begin)*1000)
 
     print("Conpare Result")
     hw_ofm = convertOFMOutput(ofm_buff, ofm_depth, WORD_LENGTH, out_channel, outRow, outCol, Ti)
