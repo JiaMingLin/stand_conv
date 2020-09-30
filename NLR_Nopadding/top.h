@@ -17,8 +17,8 @@ using namespace hls;
 #ifdef CSIM_FLAG
 #define InSize 6
 #define OutSize 6
-#define To 16 // output channel
-#define Ti 16 // input channel
+#define To 64 // output channel
+#define Ti 64 // input channel
 #else
 
 #define InSize 30

@@ -1,10 +1,11 @@
 import configparser
 import numpy as np
+import conv_operation as co
+import time
 
 from math import floor, ceil
 from pynq import Xlnk
 from pynq import Overlay
-
 
 config = configparser.ConfigParser()   
 configFilePath = './config.cfg'
@@ -72,15 +73,28 @@ class Module(object):
 	def __call__(self, raw_image):
 		self._convert_raw_image_to_buffer(raw_image)
 		print("executing layers...")
+
+		hw_begin = time.perf_counter()
 		fm = self.layers[0](self.input_buff)
+		print("layer {} size = {}, time = {}(ms)"\
+			.format(0, self.layers[0].weight_shape, (time.perf_counter() - hw_begin)*1000))
+
+		cnt = 1
 		for l in self.layers[1:]:
+			hw_begin = time.perf_counter()
 			fm = l(fm)
+			print("layer {} size = {}, time = {}(ms)"\
+			.format(cnt, l.weight_shape, (time.perf_counter() - hw_begin)*1000))
+			cnt+=1
 
 		return fm
 
 	def mem_alloc(self, out_channel, in_channel, in_height, in_width, ker):
 		print("memory allocation...")
 		# ifm_depth = int(ceil((in_channel*in_height*in_width)/self.WORD_LENGTH))
+		if (out_channel % self.To != 0):
+			out_channel += self.To - (out_channel % self.To)
+
 		fm_depth = int(ceil((out_channel*in_height*in_width)/self.WORD_LENGTH))
 		wgt_depth = int(ceil((in_channel*out_channel*ker*ker)/self.WORD_LENGTH))
 
@@ -159,14 +173,18 @@ class Module(object):
 		kerW = layer.ker
 
 		if in_channel < self.Ti:
-			zero_padding = np.zeros((self.To,self.Ti - in_channel,kerH,kerW), dtype=np.uint8)
+			zero_padding = np.zeros((out_channel,self.Ti - in_channel,kerH,kerW), dtype=np.uint8)
 			wgt = np.concatenate((wgt,zero_padding), axis = 1)
+
+		# if (out_channel % self.To != 0):
+		# 	zero_padding = np.zeros((self.To - (out_channel % self.To),in_channel,kerH,kerW), dtype=np.uint8)
+		# 	wgt = np.concatenate((wgt,zero_padding), axis = 0)
 
 		print("shape of wgt: ", wgt.shape)
 		wgt_tmp = np.transpose(\
-						wgt.reshape((int(out_channel/self.To), self.To, int(ceil(in_channel/self.Ti)), self.Ti, kerH, kerW)), \
+						wgt.reshape((int(ceil(out_channel/self.To)), self.To, int(ceil(in_channel/self.Ti)), self.Ti, kerH, kerW)), \
 						(0,2,1,4,5,3))\
-					.reshape((int(out_channel/self.To), int(ceil(in_channel/self.Ti)), self.To, kerH, kerW,int(self.Ti/self.WORD_LENGTH),self.WORD_LENGTH))\
+					.reshape((int(ceil(out_channel/self.To)), int(ceil(in_channel/self.Ti)), self.To, kerH, kerW,int(self.Ti/self.WORD_LENGTH),self.WORD_LENGTH))\
 					.reshape(-1,self.WORD_LENGTH)
 
 		np.copyto(layer.wgt_buff, wgt_tmp)
@@ -244,26 +262,56 @@ class Conv2DPool(Module):
 		return self.ofm_buff
 
 class Linear(Module):
-	def __init__():
-		pass
+	def __init__(self, out_channel, in_channel):
+		super(Linear, self).__init__()
+
+		self.type = "linear"
+		self.out_channel = out_channel
+		self.in_channel = in_channel
+		self.in_height = 1
+		self.in_width = 1
+		self.out_height = 1
+		self.out_width = 1
+		self.ker = 1
+		self.weight_shape = (out_channel, in_channel, 1, 1)
+		self.weight_data = None
+
+		# self.ofm_buff, self.wgt_buff = \
+		# self.mem_alloc(max(out_channel, self.To)\
+		# 	, max(in_channel, self.Ti), self.out_height, self.out_width, self.ker)
+
+	def __call__(self, feature):
+		print("executing Fully Connected Layer")
+		# feature: (1, in_channel * in_height * in_width)
+		# wgt: (out_channel, in_channel * in_height * in_width)
+		return co.sw_linear(feature, self.weight_data)
 
 class Flatten(Module):
-	def __init__(self, in_height, in_width):
+	def __init__(self, in_height, in_width, in_channel):
 		super(Flatten, self).__init__()
 		
 		self.type = "flatten"
 		self.in_height = in_height
 		self.in_width = in_width
-		self.tile_depth = in_height*in_width
+		self.in_channel = in_channel
+		self.weight_shape = (in_height, in_width, in_channel)
+		# self.tile_depth = int(in_height*in_width)
 
-	def __call__(self, hw_buffer):
-		buffer_depth = hw_buffer.shape[0]
+	def __call__(self, feature_buff):
+		print("executing Flatten")
+		# convert to row major feature map(channel, height, width)
+		return co.convertOFMOutput(\
+				feature_buff, feature_buff.shape[0], self.WORD_LENGTH\
+				, self.in_channel, self.in_height, self.in_width, Ti = self.Ti)\
+			.reshape((self.in_channel * self.in_height * self.in_width, -1))
 
-		# TODO: padding zero
-		num_tile = int(ceil(buffer_depth/self.tile_depth))
-		return np.transpose(\
-			hw_buffer.reshape((num_tile,self.tile_depth,self.WORD_LENGTH)),(0,2,1))\
-		.reshape((buffer_depth,self.WORD_LENGTH))
+		# buffer_depth = hw_buffer.shape[0]
+
+		# # TODO: padding zero
+		# num_tile = int(ceil(buffer_depth/self.tile_depth))
+		# return np.transpose(\
+		# 	hw_buffer.reshape((num_tile,self.tile_depth,self.WORD_LENGTH)),(0,2,1))\
+		# .reshape((buffer_depth,self.WORD_LENGTH))
 		
 
 class ReLU(Module):
