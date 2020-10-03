@@ -201,7 +201,6 @@ proc create_root_design { parentCell } {
   set axi_interconnect_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_interconnect:2.1 axi_interconnect_0 ]
   set_property -dict [ list \
    CONFIG.NUM_MI {1} \
-   CONFIG.NUM_SI {1} \
  ] $axi_interconnect_0
 
   # Create instance: proc_sys_reset_0, and set properties
@@ -450,6 +449,7 @@ proc create_root_design { parentCell } {
    CONFIG.PSU__CRL_APB__GEM_TSU_REF_CTRL__ACT_FREQMHZ {250.000000} \
    CONFIG.PSU__CRL_APB__GEM_TSU_REF_CTRL__DIVISOR0 {6} \
    CONFIG.PSU__CRL_APB__GEM_TSU_REF_CTRL__DIVISOR1 {1} \
+   CONFIG.PSU__CRL_APB__GEM_TSU_REF_CTRL__SRCSEL {IOPLL} \
    CONFIG.PSU__CRL_APB__I2C0_REF_CTRL__DIVISOR0 {15} \
    CONFIG.PSU__CRL_APB__I2C0_REF_CTRL__DIVISOR1 {1} \
    CONFIG.PSU__CRL_APB__I2C0_REF_CTRL__FREQMHZ {100} \
@@ -752,18 +752,24 @@ proc create_root_design { parentCell } {
   connect_bd_intf_net -intf_net zynq_ultra_ps_e_0_M_AXI_HPM0_FPD [get_bd_intf_pins axi_interconnect_0/S00_AXI] [get_bd_intf_pins zynq_ultra_ps_e_0/M_AXI_HPM0_FPD]
 
   # Create port connections
-  connect_bd_net -net ACLK_1 [get_bd_pins DoCompute_0/ap_clk] [get_bd_pins axi_interconnect_0/ACLK] [get_bd_pins axi_interconnect_0/M00_ACLK] [get_bd_pins axi_interconnect_0/S00_ACLK] [get_bd_pins proc_sys_reset_0/slowest_sync_clk] [get_bd_pins smartconnect_0/aclk] [get_bd_pins smartconnect_1/aclk] [get_bd_pins zynq_ultra_ps_e_0/maxihpm0_fpd_aclk] [get_bd_pins zynq_ultra_ps_e_0/pl_clk0] [get_bd_pins zynq_ultra_ps_e_0/saxihp0_fpd_aclk] [get_bd_pins zynq_ultra_ps_e_0/saxihp1_fpd_aclk]
+  connect_bd_net -net Net [get_bd_pins DoCompute_0/ap_clk] [get_bd_pins axi_interconnect_0/ACLK] [get_bd_pins axi_interconnect_0/M00_ACLK] [get_bd_pins axi_interconnect_0/S00_ACLK] [get_bd_pins proc_sys_reset_0/slowest_sync_clk] [get_bd_pins smartconnect_0/aclk] [get_bd_pins smartconnect_1/aclk] [get_bd_pins zynq_ultra_ps_e_0/maxihpm0_fpd_aclk] [get_bd_pins zynq_ultra_ps_e_0/pl_clk0] [get_bd_pins zynq_ultra_ps_e_0/saxihp0_fpd_aclk] [get_bd_pins zynq_ultra_ps_e_0/saxihp1_fpd_aclk]
   connect_bd_net -net proc_sys_reset_0_peripheral_aresetn [get_bd_pins DoCompute_0/ap_rst_n] [get_bd_pins axi_interconnect_0/ARESETN] [get_bd_pins axi_interconnect_0/M00_ARESETN] [get_bd_pins axi_interconnect_0/S00_ARESETN] [get_bd_pins proc_sys_reset_0/peripheral_aresetn] [get_bd_pins smartconnect_0/aresetn] [get_bd_pins smartconnect_1/aresetn]
   connect_bd_net -net zynq_ultra_ps_e_0_pl_resetn0 [get_bd_pins proc_sys_reset_0/ext_reset_in] [get_bd_pins zynq_ultra_ps_e_0/pl_resetn0]
 
   # Create address segments
   create_bd_addr_seg -range 0x80000000 -offset 0x00000000 [get_bd_addr_spaces DoCompute_0/Data_m_axi_INPUT_r] [get_bd_addr_segs zynq_ultra_ps_e_0/SAXIGP2/HP0_DDR_LOW] SEG_zynq_ultra_ps_e_0_HP0_DDR_LOW
-  create_bd_addr_seg -range 0x01000000 -offset 0xFF000000 [get_bd_addr_spaces DoCompute_0/Data_m_axi_INPUT_r] [get_bd_addr_segs zynq_ultra_ps_e_0/SAXIGP2/HP0_LPS_OCM] SEG_zynq_ultra_ps_e_0_HP0_LPS_OCM
   create_bd_addr_seg -range 0x20000000 -offset 0xC0000000 [get_bd_addr_spaces DoCompute_0/Data_m_axi_INPUT_r] [get_bd_addr_segs zynq_ultra_ps_e_0/SAXIGP2/HP0_QSPI] SEG_zynq_ultra_ps_e_0_HP0_QSPI
   create_bd_addr_seg -range 0x80000000 -offset 0x00000000 [get_bd_addr_spaces DoCompute_0/Data_m_axi_OUTPUT_r] [get_bd_addr_segs zynq_ultra_ps_e_0/SAXIGP3/HP1_DDR_LOW] SEG_zynq_ultra_ps_e_0_HP1_DDR_LOW
-  create_bd_addr_seg -range 0x01000000 -offset 0xFF000000 [get_bd_addr_spaces DoCompute_0/Data_m_axi_OUTPUT_r] [get_bd_addr_segs zynq_ultra_ps_e_0/SAXIGP3/HP1_LPS_OCM] SEG_zynq_ultra_ps_e_0_HP1_LPS_OCM
   create_bd_addr_seg -range 0x20000000 -offset 0xC0000000 [get_bd_addr_spaces DoCompute_0/Data_m_axi_OUTPUT_r] [get_bd_addr_segs zynq_ultra_ps_e_0/SAXIGP3/HP1_QSPI] SEG_zynq_ultra_ps_e_0_HP1_QSPI
   create_bd_addr_seg -range 0x00010000 -offset 0xA0000000 [get_bd_addr_spaces zynq_ultra_ps_e_0/Data] [get_bd_addr_segs DoCompute_0/s_axi_CTRL_BUS/Reg] SEG_DoCompute_0_Reg
+
+  # Exclude Address Segments
+  create_bd_addr_seg -range 0x01000000 -offset 0xFF000000 [get_bd_addr_spaces DoCompute_0/Data_m_axi_INPUT_r] [get_bd_addr_segs zynq_ultra_ps_e_0/SAXIGP2/HP0_LPS_OCM] SEG_zynq_ultra_ps_e_0_HP0_LPS_OCM
+  exclude_bd_addr_seg [get_bd_addr_segs DoCompute_0/Data_m_axi_INPUT_r/SEG_zynq_ultra_ps_e_0_HP0_LPS_OCM]
+
+  create_bd_addr_seg -range 0x01000000 -offset 0xFF000000 [get_bd_addr_spaces DoCompute_0/Data_m_axi_OUTPUT_r] [get_bd_addr_segs zynq_ultra_ps_e_0/SAXIGP3/HP1_LPS_OCM] SEG_zynq_ultra_ps_e_0_HP1_LPS_OCM
+  exclude_bd_addr_seg [get_bd_addr_segs DoCompute_0/Data_m_axi_OUTPUT_r/SEG_zynq_ultra_ps_e_0_HP1_LPS_OCM]
+
 
 
   # Restore current instance
