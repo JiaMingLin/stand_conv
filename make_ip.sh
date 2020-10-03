@@ -10,7 +10,9 @@ fi
 
 PART="xczu3eg-sbva484-1-e"
 if [ "$2" = "medium" ]; then
-	PART="xczu7ev-ffvc1156-2-e"
+        PART="xczu7ev-ffvc1156-2-e"
+elif [ "$2" = "large" ]; then
+        PART="xczu9eg-ffvb1156-2-e"
 fi
 
 cd $HLS_ROOT
