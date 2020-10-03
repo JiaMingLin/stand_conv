@@ -26,10 +26,10 @@ int main(){
 
 	srand(30);
 	const int inRow = 32, inCol = 32;
-	const int Tr = 16, Tc = 16;
-	const int inChannel=3, outChannel=96;
-	const int kerSize = 7;
-	const int stride = 2;
+	const int Tr = 8, Tc = 8;
+	const int inChannel=32, outChannel=32;
+	const int kerSize = 3;
+	const int stride = 1;
 	const int poolWin = 1;
 	int inTiles = divide_ceil(inChannel, Ti);
 	int outTiles = divide_ceil(outChannel, To);
@@ -44,8 +44,7 @@ int main(){
 	}
 
 	char* dataMode = (char*)"rand";
-//	data_t act[inRow][inCol][inChannel];
-	data_t ***act = Init3DArray(inRow, inCol, (inChannel>16)?16:inChannel);
+	data_t ***act = Init3DArray(inRow, inCol, (inChannel>16)?inChannel:16);
 	data_t weight[kerSize][kerSize][outChannel][inChannel];
 	data_t ***sw_conv_result = Init3DArray(outRow, outCol, outChannel);
 	data_t ***sw_result = Init3DArray(outRow, outCol, outChannel);
@@ -61,7 +60,7 @@ int main(){
 	IFMConvert<inRow, inCol, inChannel>(hw_input, act, inTiles);
 	IFMMonitor<inRow, inCol, inChannel>(act, 0);
 	IFMMonitorLinear<inRow, inCol, inChannel>(hw_input, inRow, inCol, inTiles, 0);
-//
+
 //	// initialize weight
 	WGTInit<kerSize, outChannel, inChannel>(weight, (char*)"channel", dataMode);
 	WGTConvert<kerSize, outChannel, inChannel>(hw_wgt, weight, outTiles, inTiles);
@@ -95,7 +94,6 @@ int main(){
 	}else{
 		SW_FCN<inRow, inCol, inChannel, outChannel, kerSize>(sw_result,act,weight);
 	}
-
 
 	if(poolWin > 1){
 		outRow = divide_ceil(inRow, poolWin);

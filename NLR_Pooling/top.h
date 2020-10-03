@@ -23,11 +23,9 @@ using namespace hls;
 #define MAX_TILE_OUT_WIDTH 3
 
 #else
-#define MAX_TILE_OUT_HEIGHT 16
-#define MAX_TILE_OUT_WIDTH 16
+#define MAX_TILE_OUT_HEIGHT 32
+#define MAX_TILE_OUT_WIDTH 32
 #endif
-
-#define TEST_INDIM 32
 
 #define MAX_STRIDE 2
 #define MAX_KERNEL_SIZE 7
@@ -75,11 +73,11 @@ struct block_t{
 };
 
 void DoCompute(
-		uint128 *input,
-		uint128 *output,
+		uint128 *ifm,
+		uint128 *ofm,
 		uint128 *raw_wgt,
 		int inRow, int inCol, int inChannel, int outChannel,
-		int Tr, int Tc, int ker_size, int stride, int type);
+		int Tr, int Tc, int kerSize, int stride, int poolWin);
 
 void Convolution(uint128 *ifm,
 		uint128 *ofm,
@@ -97,7 +95,7 @@ void LoadActivation(
 		int Tr, int Tc, 
 		int tidY, int tidX, int tidIn, 
 		int inTr, int inTc,
-		int padding, data_t currFMZP);
+		int padding);
 
 void LoadWeight(
 		uint128 *raw_wgt,
@@ -110,7 +108,7 @@ void WriteOutput(
 		uintAcc psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH],
 		int tidY, int tidX, int tidOut,
 		int Tr, int Tc, int inRow, int inCol,
-		int poolWin, float multiplier, int nextFMZP);
+		int poolWin);
 
 void WriteDRAM(
 		uint128 *output, uintTo buffer,
@@ -260,7 +258,7 @@ void IFMMonitorTile(
  ***********************************************/
 
 template<unsigned kerSize, unsigned outChannel, unsigned inChannel>
-void WGTInit(data_t wgt[kerSize][kerSize][outChannel][inChannel], data_t zeroPoint, char* mode, char* dataMode){
+void WGTInit(data_t wgt[kerSize][kerSize][outChannel][inChannel], char* mode, char* dataMode){
 	if(mode == "channel"){
 		for(int k_out = 0; k_out < outChannel; k_out++){
 			for(int i = 0; i < kerSize; i++){
@@ -268,14 +266,13 @@ void WGTInit(data_t wgt[kerSize][kerSize][outChannel][inChannel], data_t zeroPoi
 					for(int k_in = 0; k_in < inChannel; k_in++){
 						if(dataMode == "rand"){
 #ifndef __SYNTHESIS__
-							wgt[i][j][k_out][k_in] =rand()%256 - zeroPoint;
+							wgt[i][j][k_out][k_in] =rand()%256;
 #endif
 						}else if(dataMode == "order"){
 							wgt[i][j][k_out][k_in] =
-							k_out * kerSize * kerSize * inChannel + i * kerSize * inChannel + j * inChannel + k_in
-							- zeroPoint;
+							k_out * kerSize * kerSize * inChannel + i * kerSize * inChannel + j * inChannel + k_in;
 						}else{
-							wgt[i][j][k_out][k_in] = 1 - zeroPoint;
+							wgt[i][j][k_out][k_in] = 1;
 						}
 					}
 				}

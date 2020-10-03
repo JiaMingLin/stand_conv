@@ -36,15 +36,6 @@ int main(){
 	int outRow = inRow;
 	int outCol = inCol;
 
-	// quantization
-	const float xScale = 0.11951114696547158;
-	const data_t xZeroPoint = 7;
-	const float wScale = 0.0033;
-	const data_t wZeroPoint = 122;
-	const float xNextScale = 0.16076112821394611;
-	const data_t xNextZeroPoint = 7;
-	const float multiplier = (xScale * wScale)/xNextScale;
-
 	bool isFCN = (inRow == 1 && inCol == 1)? true:false;
 
 	if(stride > 1){
@@ -54,7 +45,7 @@ int main(){
 
 	char* dataMode = (char*)"rand";
 //	data_t act[inRow][inCol][inChannel];
-	data_t ***act = Init3DArray(inRow, inCol, (inChannel>WORD_LENGTH)?inChannel:WORD_LENGTH);
+	data_t ***act = Init3DArray(inRow, inCol, (inChannel>16)?16:inChannel);
 	data_t weight[kerSize][kerSize][outChannel][inChannel];
 	data_t ***sw_conv_result = Init3DArray(outRow, outCol, outChannel);
 	data_t ***sw_result = Init3DArray(outRow, outCol, outChannel);
@@ -71,8 +62,8 @@ int main(){
 	IFMMonitor<inRow, inCol, inChannel>(act, 0);
 	IFMMonitorLinear<inRow, inCol, inChannel>(hw_input, inRow, inCol, inTiles, 0);
 //
-//	// initialize weight(quantized)
-	WGTInit<kerSize, outChannel, inChannel>(weight, wZeroPoint, (char*)"channel", dataMode);
+//	// initialize weight
+	WGTInit<kerSize, outChannel, inChannel>(weight, (char*)"channel", dataMode);
 	WGTConvert<kerSize, outChannel, inChannel>(hw_wgt, weight, outTiles, inTiles);
 	WGTMonitor<kerSize, outChannel, inChannel>(weight, 0);
 	WGTMonitorLinear<kerSize, outChannel, inChannel>(hw_wgt,outTiles, inTiles, 0);
@@ -113,8 +104,7 @@ int main(){
 	// hardware conv
 	DoCompute(hw_input, hw_output, hw_wgt,
 	 		inRow, inCol, inChannel, outChannel,
-	 		Tr, Tc, kerSize, stride, poolWin,
-			multiplier, xZeroPoint, xNextZeroPoint);
+	 		Tr, Tc, kerSize, stride, poolWin);
 //	OFMMonitorLinear(hw_output, outRow, outCol, outChannel);
 
 	OFMConvert<outChannel>(hw_result, hw_output, outRow, outCol);
@@ -127,7 +117,7 @@ int main(){
  		for(int i = 0; i < outRow; i++){
  			for(int j = 0; j < outCol; j++){
  				if(sw_result[i][j][k] != hw_result[i][j][k]){
-// 					err++;
+ 					err++;
  				}
 // 				cout << sw_result[i][j][k] << ":" << hw_result[i][j][k] << ", ";
 // 				cout << sw_result[i][j][k] << ", ";

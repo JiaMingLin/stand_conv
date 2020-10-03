@@ -50,7 +50,7 @@ def make_layers():
 
 	# conv output size = (8,8,512)
 	layers += [fpga_nn.Flatten(int(in_height/32), int(in_width/32), 512)]
-	layers += [fpga_nn.Linear(4096,8*8*512)]
+	layers += [fpga_nn.Linear(4096,int(in_height/32)*int(in_width/32)*512)]
 	layers += [fpga_nn.Linear(101,4096)]
 
 	return layers

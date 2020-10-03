@@ -20,7 +20,8 @@ void DoCompute(
 		uint128 *ofm,
 		uint128 *raw_wgt,
 		int inRow, int inCol, int inChannel, int outChannel,
-		int Tr, int Tc, int kerSize, int stride, int poolWin){
+		int Tr, int Tc, int kerSize, int stride, int poolWin,
+		float multiplier, int currFMZP, int nextFMZP){
 
 #pragma HLS INTERFACE m_axi depth=4096 port=ifm offset=slave bundle=INPUT
 #pragma HLS INTERFACE m_axi depth=2304 port=raw_wgt offset=slave  bundle=INPUT
@@ -35,10 +36,18 @@ void DoCompute(
 #pragma HLS INTERFACE s_axilite port=ker_size bundle=CTRL_BUS
 #pragma HLS INTERFACE s_axilite port=stride bundle=CTRL_BUS
 #pragma HLS INTERFACE s_axilite port=poolWin bundle=CTRL_BUS
+#pragma HLS INTERFACE s_axilite port=multiplier bundle=CTRL_BUS
+#pragma HLS INTERFACE s_axilite port=currFMZP bundle=CTRL_BUS
+#pragma HLS INTERFACE s_axilite port=nextFMZP bundle=CTRL_BUS
 
 	uintTi act[MAX_TILE_IN_HEIGHT][MAX_TILE_IN_WIDTH];
 	uintAcc psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH];
 	uintTi wgt[MAX_KERNEL_SIZE][MAX_KERNEL_SIZE][To];
+
+	inCol = 8; inRow = 8; inChannel = 128; outChannel = 128;
+	poolWin = 1;
+
+	Tr = 8; Tc = 8; kerSize = 3; stride = 1;
 
 	int tileNumX = divide_ceil(inCol, Tc*stride);
 	int tileNumY = divide_ceil(inRow, Tr*stride);
@@ -53,17 +62,14 @@ void DoCompute(
 
 	// loop order at tile level: row major
 	// TODO: comparing with channel major on tile ordering level
-	for(int tidOut = 0; tidOut < tileNumOut; tidOut++){
-#pragma HLS LOOP_TRIPCOUNT min=4 max=4 avg=4
-		for(int tidY = 0; tidY < tileNumY; tidY++){
-#pragma HLS LOOP_TRIPCOUNT min=4 max=4 avg=4
-			for(int tidX = 0; tidX < tileNumX; tidX++){
-#pragma HLS LOOP_TRIPCOUNT min=4 max=4 avg=4
+	OUT_CHANNEL_TID_LOOP: for(int tidOut = 0; tidOut < tileNumOut; tidOut++){
+		OUT_HEIGHT_TID_LOOP: for(int tidY = 0; tidY < tileNumY; tidY++){
+			OUT_WIDTH_TID_LOOP: for(int tidX = 0; tidX < tileNumX; tidX++){
 
 				// psum initialize
 				InitPSUM<uintAcc>(psum_output);
 
-				for(int tidIn = 0; tidIn < tileNumIn; tidIn++){
+				IN_CHANNEL_TID_LOOP: for(int tidIn = 0; tidIn < tileNumIn; tidIn++){
 #pragma HLS LOOP_TRIPCOUNT min=2 max=2 avg=2
 					// load activation
 
@@ -71,7 +77,7 @@ void DoCompute(
 						ifm, act,
 						inRow, inCol, Tr, Tc,
 						tidY, tidX, tidIn,
-						inTr, inTc, padding);
+						inTr, inTc, padding, currFMZP);
 
 //					IFMMonitorTile(act, tidY, tidX, tidIn, inTr, inTc);
 
@@ -93,7 +99,7 @@ void DoCompute(
 				WriteOutput(ofm, psum_output,
 					tidY, tidX, tidOut,
 					Tr, Tc, inRow, inCol,
-					poolWin);
+					poolWin, multiplier, nextFMZP);
 
 			}
 		}
@@ -126,7 +132,7 @@ void LoadActivation(
 		int inRow, int inCol,
 		int Tr, int Tc, int tidY, int tidX, int tidIn,
 		int inTr, int inTc,
-		int padding){
+		int padding, data_t currFMZP){
 
 	// anchor on the feature map plane
 	int anchorX = tidX * Tc - padding;
@@ -138,15 +144,13 @@ void LoadActivation(
 	uintTi buffer;
 
 	for(int i = 0; i < inTr; i++){
-#pragma HLS LOOP_TRIPCOUNT min=10 max=10 avg=10
 		for(int j = 0; j < inTc; j++){
-#pragma HLS LOOP_TRIPCOUNT min=10 max=10 avg=10
 #pragma HLS PIPELINE II = 2
 			int lineOffset = (offset + j)*WORDS_PER_LINE;
 			if(notBoundary(i,j,anchorX,anchorY,inRow,inCol)){
 #ifdef ULTRA96
 				for(int k = 0; k < WORD_LENGTH; k++){
-					buffer.range((k+1)*PREC-1, k*PREC) = ifm[lineOffset].range((k+1)*PREC-1, k*PREC);
+					buffer.range((k+1)*PREC-1, k*PREC) = ifm[lineOffset].range((k+1)*PREC-1, k*PREC)-currFMZP;
 //					buffer.data[k] = 1;
 				}
 #else
@@ -232,7 +236,8 @@ void WriteOutput(
 		uintAcc psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH],
 		int tidY, int tidX, int tidOut,
 		int Tr, int Tc, int row, int column,
-		int poolWin
+		int poolWin,
+		float multiplier, int nextFMZP
 		){
 
 	int outRow = divide_ceil(row, poolWin);

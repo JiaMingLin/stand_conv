@@ -76,15 +76,23 @@ class Module(object):
 
 		hw_begin = time.perf_counter()
 		fm = self.layers[0](self.input_buff)
-		print("layer {} size = {}, time = {}(ms)"\
-			.format(0, self.layers[0].weight_shape, (time.perf_counter() - hw_begin)*1000))
+		print("layer {}, IFM size = {}, WGT size = {}, OFM size = {}, time = {}(ms)"\
+			.format(0, \
+				(self.layers[0].in_height, self.layers[0].in_width, self.layers[0].in_channel),\
+				self.layers[0].weight_shape, \
+				(self.layers[0].out_height, self.layers[0].out_width, self.layers[0].out_channel),\
+				(time.perf_counter() - hw_begin)*1000))
 
 		cnt = 1
 		for l in self.layers[1:]:
 			hw_begin = time.perf_counter()
 			fm = l(fm)
-			print("layer {} size = {}, time = {}(ms)"\
-			.format(cnt, l.weight_shape, (time.perf_counter() - hw_begin)*1000))
+			print("layer {}, IFM size = {}, WGT size = {}, OFM size = {}, time = {}(ms)"\
+			.format(cnt, \
+				(l.in_height, l.in_width, l.in_channel),\
+				l.weight_shape, \
+				(l.out_height, l.out_width, l.out_channel),\
+				(time.perf_counter() - hw_begin)*1000))
 			cnt+=1
 
 		return fm
@@ -294,6 +302,11 @@ class Flatten(Module):
 		self.in_height = in_height
 		self.in_width = in_width
 		self.in_channel = in_channel
+
+		self.out_height = 1
+		self.out_width = 1
+		self.out_channel = self.in_height * self.in_width * self.in_channel
+
 		self.weight_shape = (in_height, in_width, in_channel)
 		# self.tile_depth = int(in_height*in_width)
 
