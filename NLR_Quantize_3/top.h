@@ -3,8 +3,9 @@
 #include<ap_int.h>
 #include<ap_fixed.h>
 #include<hls_stream.h>
-#include <stdint.h>
-#include <math.h>
+#include<hls_math.h>
+#include<stdint.h>
+#include<math.h>
 
 using namespace std;
 using namespace hls;
@@ -51,6 +52,8 @@ using namespace hls;
 
 typedef ap_uint<PREC> data_t;
 typedef ap_int<ACC_PREC> psum_t;
+
+typedef ap_ufixed<8,8,AP_RND_CONV,AP_SAT> clamp_round_t;
 //typedef ap_fixed<PREC,8> data_t;
 //typedef ap_fixed<PREC,8> psum_t;
 
@@ -77,7 +80,8 @@ void DoCompute(
 		uint128 *ofm,
 		uint128 *raw_wgt,
 		int inRow, int inCol, int inChannel, int outChannel,
-		int Tr, int Tc, int kerSize, int stride, int poolWin);
+		int Tr, int Tc, int kerSize, int stride, int poolWin,
+		float multiplier, data_t zpX, data_t zpW, data_t zpXNext);
 
 void Convolution(uint128 *ifm,
 		uint128 *ofm,
@@ -105,14 +109,15 @@ void LoadWeight(
 
 void WriteOutput(
 		uint128 *ofm,
-		uintAcc psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH],
+		psum_t psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH][To],
+		float multiplier, data_t zpXNext,
 		int tidY, int tidX, int tidOut,
 		int Tr, int Tc, int inRow, int inCol,
 		int poolWin);
 
 void WriteDRAM(
-		uint128 *output, uintTo buffer,
-		int wordOffset
+		uint128 *output, psum_t buffer[To],
+		int wordOffset, float multiplier, data_t zpXNext
 		);
 
 void PoolingOutput(
@@ -136,6 +141,53 @@ int minimum(int a, int b){
 	return a;
 }
 
+inline
+data_t ***Init3DArray(int height, int width, int channel){
+	data_t*** fm = new data_t**[height];
+	for(int i = 0; i < height; i++){
+		fm[i] = new data_t*[width];
+		for(int j = 0; j < width; j++){
+			fm[i][j] = new data_t[channel];
+		}
+	}
+
+	for(int i = 0; i < height; i++){
+		for(int j = 0; j < width; j++){
+			for(int k = 0; k < channel; k++){
+				fm[i][j][k] = 0;
+			}
+		}
+	}
+
+	return fm;
+}
+
+inline
+data_t ****Init4DArray(int kerSize, int outChannel, int inChannel){
+	data_t**** arr = new data_t***[kerSize];
+	for(int ky = 0; ky < kerSize; ky++){
+		arr[ky] = new data_t**[kerSize];
+		for(int kx = 0; kx < kerSize; kx++){
+			arr[ky][kx] = new data_t*[outChannel];
+			for(int o = 0; o < outChannel; o++){
+				arr[ky][kx][o] = new data_t[inChannel];
+			}
+		}
+	}
+
+	for(int ky = 0; ky < kerSize; ky++){
+		for(int kx = 0; kx < kerSize; kx++){
+			for(int o = 0; o < outChannel; o++){
+				for(int i = 0; i < inChannel; i++){
+					arr[ky][kx][o][i] = 0;
+				}
+			}
+		}
+	}
+
+	return arr;
+}
+
 /***********************************************
  *
  * Input feature map functions
@@ -145,21 +197,40 @@ int minimum(int a, int b){
 template<unsigned inRow, unsigned inCol, unsigned inChannel>
 void IFMInit(data_t ***ifm, char* mode){
 	for(int i = 0; i < inRow; i++){
-			for(int j = 0; j < inCol; j++){
-				for(int k = 0; k < inChannel; k++){
-					if(mode == "rand"){
+		for(int j = 0; j < inCol; j++){
+			for(int k = 0; k < inChannel; k++){
+				if(mode == "rand"){
 #ifndef __SYNTHESIS__
-						ifm[i][j][k] = rand()%256;
+					ifm[i][j][k] = rand()%256;
 #endif
-					}else if(mode == "order"){
-						ifm[i][j][k] = i * inCol * inChannel + j * inChannel + k;
-					}else{
-						ifm[i][j][k] = 1;
-					}
+				}else if(mode == "order"){
+					ifm[i][j][k] = i * inCol * inChannel + j * inChannel + k;
+				}else{
+					ifm[i][j][k] = 1;
+				}
 					//
+			}
+		}
+	}
+
+	if(mode == "file"){
+		char buff[inRow*inCol*inChannel];
+		data_t temp[inChannel][inRow][inCol];
+		FILE *latfile;
+
+		sprintf(buff,"%s","ifm.dat");
+		latfile=fopen(buff,"r");
+		fread(&(temp[0][0][0]),sizeof(data_t),inRow*inCol*inChannel,latfile);
+		fclose(latfile);
+
+		for(int k = 0; k < inChannel; k++){
+			for(int i = 0; i < inRow; i++){
+				for(int j = 0; j < inCol; j++){
+					ifm[i][j][k] = temp[k][i][j];
 				}
 			}
 		}
+	}
 }
 
 template<unsigned inRow, unsigned inCol, unsigned inChannel>
@@ -258,8 +329,10 @@ void IFMMonitorTile(
  ***********************************************/
 
 template<unsigned kerSize, unsigned outChannel, unsigned inChannel>
-void WGTInit(data_t wgt[kerSize][kerSize][outChannel][inChannel], char* mode, char* dataMode){
+void WGTInit(data_t ****wgt, char* mode, char* dataMode){
+
 	if(mode == "channel"){
+
 		for(int k_out = 0; k_out < outChannel; k_out++){
 			for(int i = 0; i < kerSize; i++){
 				for(int j = 0 ; j < kerSize; j++){
@@ -290,12 +363,34 @@ void WGTInit(data_t wgt[kerSize][kerSize][outChannel][inChannel], char* mode, ch
 			}
 		}
 	}
+
+	if(dataMode == "file"){
+		char buff[kerSize*kerSize*outChannel*inChannel];
+		data_t temp[outChannel][inChannel][kerSize][kerSize];
+		FILE *latfile;
+
+		sprintf(buff,"%s","wgt.dat");
+		latfile=fopen(buff,"r");
+		fread(&(temp[0][0][0][0]),sizeof(data_t),kerSize*kerSize*outChannel*inChannel,latfile);
+		fclose(latfile);
+
+		for(int o = 0; o < outChannel; o++){
+			for(int i = 0; i < inChannel; i++){
+				for(int ky = 0; ky < kerSize; ky++){
+					for(int kx = 0; kx < kerSize; kx++){
+//						printf("o = %d, i = %d, ky = %d, kx = %d", o,i,ky,kx);
+						wgt[ky][kx][o][i] = temp[o][i][ky][kx];
+					}
+				}
+			}
+		}
+	}
 }
 
 template<unsigned kerSize, unsigned outChannel, unsigned inChannel>
 void WGTConvert(
 		uint128 hw_wgt[kerSize*kerSize*outChannel*inChannel],
-	data_t weight[kerSize][kerSize][outChannel][inChannel],
+	data_t**** weight,
 	int outTiles, int inTiles
 	){
 
@@ -324,12 +419,12 @@ void WGTConvert(
 }
 
 template<unsigned kerSize, unsigned outChannel, unsigned inChannel>
-void WGTMonitor(data_t weight[kerSize][kerSize][outChannel][inChannel], int type){
+void WGTMonitor(data_t**** weight, int type){
 	
 	if(type == 1){
 		for(int o = 0; o < outChannel; o++){
 			cout << "Output channel index = " << o << endl;
-			if(o < 32) continue;
+//			if(o < 32) continue;
 			for(int ky = 0; ky < kerSize; ky++){
 				for(int kx = 0; kx < kerSize; kx++){
 					for(int i = 0; i < inChannel; i++){
@@ -339,7 +434,21 @@ void WGTMonitor(data_t weight[kerSize][kerSize][outChannel][inChannel], int type
 				}
 			}
 			cout << endl;
-		}	
+		}
+	}else if(type == 2){
+		for(int o = 0; o < outChannel; o++){
+			cout << "Output channel index = " << o << endl;
+		//	if(o < 32) continue;
+			for(int i = 0; i < inChannel; i++){
+				for(int ky = 0; ky < kerSize; ky++){
+					for(int kx = 0; kx < kerSize; kx++){
+						cout << (int)weight[ky][kx][o][i] << ", ";
+					}
+					cout << endl;
+				}
+				cout << endl;
+			}
+		}
 	}
 }
 
@@ -402,6 +511,28 @@ void WGTMonitorTile(
  * Output feature map functions
  *
  ***********************************************/
+template<unsigned outRow, unsigned outCol, unsigned outChannel>
+void ReadOFMFromFile(data_t ***ofm){
+	char buff[outRow*outCol*outChannel];
+	data_t temp[outChannel][outRow][outCol];
+	FILE *latfile;
+
+	sprintf(buff,"%s","ofm.dat");
+	latfile=fopen(buff,"r");
+	fread(&(temp[0][0][0]),sizeof(data_t),outRow*outCol*outChannel,latfile);
+	fclose(latfile);
+
+	for(int k = 0; k < outChannel; k++){
+		for(int i = 0; i < outRow; i++){
+			for(int j = 0; j < outCol; j++){
+				ofm[i][j][k] = temp[k][i][j];
+			}
+		}
+	}
+
+}
+
+
 template<unsigned outChannel>
 void OFMConvert(
 		data_t ***hw_result,
@@ -461,13 +592,13 @@ void OFMMonitorLinear(
 
 template<typename T>
 void OFMMonitorTile(
-		uintAcc psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH], int Tr, int Tc
+		psum_t psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH][To], int Tr, int Tc
 ){
 	for(int o = 0; o < To; o++){
 		cout << "Out Channel Index = " << o << endl;
 		for(int i = 0; i < Tr; i++){
 			for(int j = 0; j < Tc; j++){
-				cout << (T)psum_output[i][j].range((o+1)*ACC_PREC-1, o*ACC_PREC) << ", ";
+				cout << (T)psum_output[i][j][o] << ", ";
 			}
 			cout << endl;
 		}
@@ -514,68 +645,6 @@ void SWConv(
  	}
 }
 
-template<typename ACC_T>
-psum_t PE(ACC_T psum,
-		uintTi act,
-		uintTi wgt){
-#pragma HLS INLINE off
-	for(int i = 0; i < Ti; i++){
-#pragma HLS UNROLL
-		psum += act.range((i+1)*PREC-1, i*PREC)*wgt.range((i+1)*PREC-1, i*PREC);
-	}
-	return psum;
-}
-
-template<unsigned numPE>
-void HWConv(
-		uintTi wgt[MAX_KERNEL_SIZE][MAX_KERNEL_SIZE][To],
-		uintTi act[MAX_TILE_IN_HEIGHT][MAX_TILE_IN_WIDTH],
-		uintAcc psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH],
-		int k1, int k2, int Tr, int Tc, int stride
-){
-#pragma HLS ALLOCATION instances=PE limit=numPE function
-
-#pragma HLS ARRAY_PARTITION variable=wgt dim=3 complete
-#pragma HLS DATA_PACK variable=wgt
-#pragma HLS DATA_PACK variable=act
-#pragma HLS DATA_PACK variable=psum_output
-
-	CONV_LOOP_KI:for(int ki = 0; ki < k1; ki++){
-#pragma HLS LOOP_TRIPCOUNT min=3 max=3 avg=3
-		CONV_LOOP_KJ:for(int kj = 0; kj < k2; kj++){
-#pragma HLS LOOP_TRIPCOUNT min=3 max=3 avg=3
-			CONV_LOOP_TR:for(int r = 0; r < Tr; r++){
-#pragma HLS LOOP_TRIPCOUNT min=8 max=8 avg=8
-				CONV_LOOP_TC:for(int c = 0; c < Tc; c++){
-#pragma HLS LOOP_TRIPCOUNT min=8 max=8 avg=8
-#pragma HLS PIPELINE
-					CONV_LOOP_TI:for(int o = 0; o < To; o++){
-#pragma HLS UNROLL
-						psum_output[r][c].range((o+1)*ACC_PREC-1, o*ACC_PREC) = PE<psum_t>(
-							psum_output[r][c].range((o+1)*ACC_PREC-1, o*ACC_PREC),
-							act[r+ki][c+kj],
-							wgt[ki][kj][o]
-						);
-					}
-				}
-			}
-		}
-	}
-}
-
-template<typename T>
-void InitPSUM(T psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH]){
-	// reset psum
-	for(int i = 0; i < MAX_TILE_OUT_HEIGHT; i++){
-		for(int j = 0; j < MAX_TILE_OUT_WIDTH; j++){
-#pragma HLS PIPELINE
-			for(int o = 0; o < To; o++){
-				psum_output[i][j].range((o+1)*ACC_PREC-1, o*ACC_PREC) = 0;
-			}
-		}
-	}
-}
-
 inline
 void SW_Pooling(data_t ***sw_result, data_t ***sw_conv_result, int row, int column, int channel, int poolWin){
 
@@ -610,5 +679,80 @@ void SW_FCN(
 
 		}
 		sw_result[0][0][o] = acc;
+	}
+}
+
+template<typename ACC_T>
+psum_t PE(ACC_T psum,
+		uintTi act,
+		uintTi wgt,
+		data_t zpX,
+		data_t zpW,
+		int maskBit){
+#pragma HLS INLINE off
+
+	for(int i = 0; i < Ti; i++){
+#pragma HLS UNROLL
+		if(i < maskBit){
+//			cout << (int)((psum_t)(act.range((i+1)*PREC-1, i*PREC)) - zpX) << " * " <<
+//					(int)((psum_t)(wgt.range((i+1)*PREC-1, i*PREC)) - zpW) << ", ";
+
+			psum += ((psum_t)(act.range((i+1)*PREC-1, i*PREC)) - zpX) *
+					((psum_t)(wgt.range((i+1)*PREC-1, i*PREC)) - zpW);
+		}
+	}
+//	cout << endl;
+	return psum;
+}
+
+template<unsigned numPE>
+void HWConv(
+		uintTi wgt[MAX_KERNEL_SIZE][MAX_KERNEL_SIZE][To],
+		uintTi act[MAX_TILE_IN_HEIGHT][MAX_TILE_IN_WIDTH],
+		psum_t psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH][To],
+		data_t zpX, data_t zpW,
+		int k1, int k2, int Tr, int Tc, int stride,
+		int inRow, int inCol, int maskBit
+){
+#pragma HLS ALLOCATION instances=PE limit=numPE function
+
+#pragma HLS ARRAY_PARTITION variable=wgt dim=3 complete
+
+	CONV_LOOP_KI:for(int ki = -1; ki < k1-1; ki++){
+#pragma HLS LOOP_TRIPCOUNT min=3 max=3 avg=3
+		CONV_LOOP_KJ:for(int kj = -1; kj < k2-1; kj++){
+#pragma HLS LOOP_TRIPCOUNT min=3 max=3 avg=3
+			CONV_LOOP_TR:for(int r = 0; r < Tr; r++){
+#pragma HLS LOOP_TRIPCOUNT min=8 max=8 avg=8
+				CONV_LOOP_TC:for(int c = 0; c < Tc; c++){
+#pragma HLS LOOP_TRIPCOUNT min=8 max=8 avg=8
+#pragma HLS PIPELINE
+					if(r+ki >= 0 && c+kj >= 0 && r+ki < inRow && c+kj < inCol){
+						CONV_LOOP_TI:for(int o = 0; o < To; o++){
+						#pragma HLS UNROLL
+							psum_output[r][c][o] = PE<psum_t>(
+								psum_output[r][c][o],
+								act[r+ki+1][c+kj+1],
+								wgt[ki+1][kj+1][o],
+								zpX, zpW, maskBit
+							);
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+template<typename T>
+void InitPSUM(T psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH][To]){
+	// reset psum
+	for(int i = 0; i < MAX_TILE_OUT_HEIGHT; i++){
+		for(int j = 0; j < MAX_TILE_OUT_WIDTH; j++){
+#pragma HLS PIPELINE
+			for(int o = 0; o < To; o++){
+				psum_output[i][j][o] = 0;
+			}
+		}
 	}
 }

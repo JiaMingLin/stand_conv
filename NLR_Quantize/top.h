@@ -3,8 +3,8 @@
 #include<ap_int.h>
 #include<ap_fixed.h>
 #include<hls_stream.h>
-#include <stdint.h>
-#include <math.h>
+#include<stdint.h>
+#include<math.h>
 
 using namespace std;
 using namespace hls;
@@ -23,16 +23,15 @@ using namespace hls;
 #define MAX_TILE_OUT_WIDTH 3
 
 #else
-#define MAX_TILE_OUT_HEIGHT 16
-#define MAX_TILE_OUT_WIDTH 16
+#define MAX_TILE_OUT_HEIGHT 32
+#define MAX_TILE_OUT_WIDTH 32
 #endif
-
-#define TEST_INDIM 32
 
 #define MAX_STRIDE 2
 #define MAX_KERNEL_SIZE 7
 #define MAX_TILE_IN_HEIGHT MAX_TILE_OUT_HEIGHT*MAX_STRIDE + (MAX_KERNEL_SIZE-MAX_STRIDE)
 #define MAX_TILE_IN_WIDTH MAX_TILE_OUT_WIDTH*MAX_STRIDE + (MAX_KERNEL_SIZE-MAX_STRIDE)
+
 
 #ifdef ULTRA96
 
@@ -79,7 +78,7 @@ void DoCompute(
 		uint128 *raw_wgt,
 		int inRow, int inCol, int inChannel, int outChannel,
 		int Tr, int Tc, int kerSize, int stride, int poolWin,
-		float multiplier, int currFMZP, int nextFMZP);
+		float multiplier, int zpW, int zpX, int zpXNext);
 
 void Convolution(uint128 *ifm,
 		uint128 *ofm,
@@ -93,21 +92,24 @@ void Convolution(uint128 *ifm,
 void LoadActivation(
 		uint128 *input,
 		uintTi act[MAX_TILE_IN_HEIGHT][MAX_TILE_IN_WIDTH],
+		data_t zpX,
 		int inRow, int inCol,
 		int Tr, int Tc, 
 		int tidY, int tidX, int tidIn, 
 		int inTr, int inTc,
-		int padding, data_t currFMZP);
+		int padding);
 
 void LoadWeight(
 		uint128 *raw_wgt,
 		uintTi wgt[MAX_KERNEL_SIZE][MAX_KERNEL_SIZE][To],
+		data_t zpW,
 		int tidIn, int tidOut, int tileNumIn,
 		int kerSize);
 
 void WriteOutput(
 		uint128 *ofm,
 		uintAcc psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH],
+		float multiplier, data_t zpXNext,
 		int tidY, int tidX, int tidOut,
 		int Tr, int Tc, int inRow, int inCol,
 		int poolWin);
@@ -138,6 +140,53 @@ int minimum(int a, int b){
 	return a;
 }
 
+inline
+data_t ***Init3DArray(int height, int width, int channel){
+	data_t*** fm = new data_t**[height];
+	for(int i = 0; i < height; i++){
+		fm[i] = new data_t*[width];
+		for(int j = 0; j < width; j++){
+			fm[i][j] = new data_t[channel];
+		}
+	}
+
+	for(int i = 0; i < height; i++){
+		for(int j = 0; j < width; j++){
+			for(int k = 0; k < channel; k++){
+				fm[i][j][k] = 0;
+			}
+		}
+	}
+
+	return fm;
+}
+
+inline
+data_t ****Init4DArray(int kerSize, int outChannel, int inChannel){
+	data_t**** arr = new data_t***[kerSize];
+	for(int ky = 0; ky < kerSize; ky++){
+		arr[ky] = new data_t**[kerSize];
+		for(int kx = 0; kx < kerSize; kx++){
+			arr[ky][kx] = new data_t*[outChannel];
+			for(int o = 0; o < outChannel; o++){
+				arr[ky][kx][o] = new data_t[inChannel];
+			}
+		}
+	}
+
+	for(int ky = 0; ky < kerSize; ky++){
+		for(int kx = 0; kx < kerSize; kx++){
+			for(int o = 0; o < outChannel; o++){
+				for(int i = 0; i < inChannel; i++){
+					arr[ky][kx][o][i] = 0;
+				}
+			}
+		}
+	}
+
+	return arr;
+}
+
 /***********************************************
  *
  * Input feature map functions
@@ -147,21 +196,40 @@ int minimum(int a, int b){
 template<unsigned inRow, unsigned inCol, unsigned inChannel>
 void IFMInit(data_t ***ifm, char* mode){
 	for(int i = 0; i < inRow; i++){
-			for(int j = 0; j < inCol; j++){
-				for(int k = 0; k < inChannel; k++){
-					if(mode == "rand"){
+		for(int j = 0; j < inCol; j++){
+			for(int k = 0; k < inChannel; k++){
+				if(mode == "rand"){
 #ifndef __SYNTHESIS__
-						ifm[i][j][k] = rand()%256;
+					ifm[i][j][k] = rand()%256;
 #endif
-					}else if(mode == "order"){
-						ifm[i][j][k] = i * inCol * inChannel + j * inChannel + k;
-					}else{
-						ifm[i][j][k] = 1;
-					}
+				}else if(mode == "order"){
+					ifm[i][j][k] = i * inCol * inChannel + j * inChannel + k;
+				}else{
+					ifm[i][j][k] = 1;
+				}
 					//
+			}
+		}
+	}
+
+	if(mode == "file"){
+		char buff[inRow*inCol*inChannel];
+		data_t temp[inChannel][inRow][inCol];
+		FILE *latfile;
+
+		sprintf(buff,"%s","ifm.dat");
+		latfile=fopen(buff,"r");
+		fread(&(temp[0][0][0]),sizeof(data_t),inRow*inCol*inChannel,latfile);
+		fclose(latfile);
+
+		for(int k = 0; k < inChannel; k++){
+			for(int i = 0; i < inRow; i++){
+				for(int j = 0; j < inCol; j++){
+					ifm[i][j][k] = temp[k][i][j];
 				}
 			}
 		}
+	}
 }
 
 template<unsigned inRow, unsigned inCol, unsigned inChannel>
@@ -260,22 +328,23 @@ void IFMMonitorTile(
  ***********************************************/
 
 template<unsigned kerSize, unsigned outChannel, unsigned inChannel>
-void WGTInit(data_t wgt[kerSize][kerSize][outChannel][inChannel], data_t zeroPoint, char* mode, char* dataMode){
+void WGTInit(data_t ****wgt, char* mode, char* dataMode){
+
 	if(mode == "channel"){
+
 		for(int k_out = 0; k_out < outChannel; k_out++){
 			for(int i = 0; i < kerSize; i++){
 				for(int j = 0 ; j < kerSize; j++){
 					for(int k_in = 0; k_in < inChannel; k_in++){
 						if(dataMode == "rand"){
 #ifndef __SYNTHESIS__
-							wgt[i][j][k_out][k_in] =rand()%256 - zeroPoint;
+							wgt[i][j][k_out][k_in] =rand()%256;
 #endif
 						}else if(dataMode == "order"){
 							wgt[i][j][k_out][k_in] =
-							k_out * kerSize * kerSize * inChannel + i * kerSize * inChannel + j * inChannel + k_in
-							- zeroPoint;
+							k_out * kerSize * kerSize * inChannel + i * kerSize * inChannel + j * inChannel + k_in;
 						}else{
-							wgt[i][j][k_out][k_in] = 1- zeroPoint;
+							wgt[i][j][k_out][k_in] = 1;
 						}
 					}
 				}
@@ -293,12 +362,34 @@ void WGTInit(data_t wgt[kerSize][kerSize][outChannel][inChannel], data_t zeroPoi
 			}
 		}
 	}
+
+	if(dataMode == "file"){
+		char buff[kerSize*kerSize*outChannel*inChannel];
+		data_t temp[outChannel][inChannel][kerSize][kerSize];
+		FILE *latfile;
+
+		sprintf(buff,"%s","wgt.dat");
+		latfile=fopen(buff,"r");
+		fread(&(temp[0][0][0][0]),sizeof(data_t),kerSize*kerSize*outChannel*inChannel,latfile);
+		fclose(latfile);
+
+		for(int o = 0; o < outChannel; o++){
+			for(int i = 0; i < inChannel; i++){
+				for(int ky = 0; ky < kerSize; ky++){
+					for(int kx = 0; kx < kerSize; kx++){
+//						printf("o = %d, i = %d, ky = %d, kx = %d", o,i,ky,kx);
+						wgt[ky][kx][o][i] = temp[o][i][ky][kx];
+					}
+				}
+			}
+		}
+	}
 }
 
 template<unsigned kerSize, unsigned outChannel, unsigned inChannel>
 void WGTConvert(
 		uint128 hw_wgt[kerSize*kerSize*outChannel*inChannel],
-	data_t weight[kerSize][kerSize][outChannel][inChannel],
+	data_t**** weight,
 	int outTiles, int inTiles
 	){
 
@@ -327,12 +418,12 @@ void WGTConvert(
 }
 
 template<unsigned kerSize, unsigned outChannel, unsigned inChannel>
-void WGTMonitor(data_t weight[kerSize][kerSize][outChannel][inChannel], int type){
+void WGTMonitor(data_t**** weight, int type){
 	
 	if(type == 1){
 		for(int o = 0; o < outChannel; o++){
 			cout << "Output channel index = " << o << endl;
-			if(o < 32) continue;
+//			if(o < 32) continue;
 			for(int ky = 0; ky < kerSize; ky++){
 				for(int kx = 0; kx < kerSize; kx++){
 					for(int i = 0; i < inChannel; i++){
@@ -342,7 +433,21 @@ void WGTMonitor(data_t weight[kerSize][kerSize][outChannel][inChannel], int type
 				}
 			}
 			cout << endl;
-		}	
+		}
+	}else if(type == 2){
+		for(int o = 0; o < outChannel; o++){
+			cout << "Output channel index = " << o << endl;
+		//	if(o < 32) continue;
+			for(int i = 0; i < inChannel; i++){
+				for(int ky = 0; ky < kerSize; ky++){
+					for(int kx = 0; kx < kerSize; kx++){
+						cout << (int)weight[ky][kx][o][i] << ", ";
+					}
+					cout << endl;
+				}
+				cout << endl;
+			}
+		}
 	}
 }
 
@@ -405,6 +510,28 @@ void WGTMonitorTile(
  * Output feature map functions
  *
  ***********************************************/
+template<unsigned outRow, unsigned outCol, unsigned outChannel>
+void ReadOFMFromFile(data_t ***ofm){
+	char buff[outRow*outCol*outChannel];
+	data_t temp[outChannel][outRow][outCol];
+	FILE *latfile;
+
+	sprintf(buff,"%s","ofm.dat");
+	latfile=fopen(buff,"r");
+	fread(&(temp[0][0][0]),sizeof(data_t),outRow*outCol*outChannel,latfile);
+	fclose(latfile);
+
+	for(int k = 0; k < outChannel; k++){
+		for(int i = 0; i < outRow; i++){
+			for(int j = 0; j < outCol; j++){
+				ofm[i][j][k] = temp[k][i][j];
+			}
+		}
+	}
+
+}
+
+
 template<unsigned outChannel>
 void OFMConvert(
 		data_t ***hw_result,
@@ -517,6 +644,43 @@ void SWConv(
  	}
 }
 
+inline
+void SW_Pooling(data_t ***sw_result, data_t ***sw_conv_result, int row, int column, int channel, int poolWin){
+
+	for(int z = 0; z < channel; z++){
+		for(int y = 0; y < row; y+=poolWin){
+			for(int x = 0; x < column; x+=poolWin){
+
+				data_t temp = sw_conv_result[y][x][z];
+				for(int i = 0; i < poolWin; i++){
+					for(int j = 0; j < poolWin; j++){
+						if(sw_conv_result[y+i][x+j][z] > temp){
+							temp = sw_conv_result[y+i][x+j][z];
+						}
+					}
+				}
+				sw_result[y/poolWin][x/poolWin][z] = temp;
+			}
+		}
+	}
+}
+
+template<unsigned inRow, unsigned inCol, unsigned inChannel, unsigned outChannel, unsigned kerSize>
+void SW_FCN(
+		data_t ***sw_result,
+		data_t ***act,
+		data_t weight[kerSize][kerSize][outChannel][inChannel]){
+
+	for(int o = 0; o < outChannel; o++){
+		psum_t acc = 0;
+		for(int i = 0; i < inChannel; i++){
+			acc += weight[0][0][o][i] * act[0][0][i];
+
+		}
+		sw_result[0][0][o] = acc;
+	}
+}
+
 template<typename ACC_T>
 psum_t PE(ACC_T psum,
 		uintTi act,
@@ -576,42 +740,5 @@ void InitPSUM(T psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH]){
 				psum_output[i][j].range((o+1)*ACC_PREC-1, o*ACC_PREC) = 0;
 			}
 		}
-	}
-}
-
-inline
-void SW_Pooling(data_t ***sw_result, data_t ***sw_conv_result, int row, int column, int channel, int poolWin){
-
-	for(int z = 0; z < channel; z++){
-		for(int y = 0; y < row; y+=poolWin){
-			for(int x = 0; x < column; x+=poolWin){
-
-				data_t temp = sw_conv_result[y][x][z];
-				for(int i = 0; i < poolWin; i++){
-					for(int j = 0; j < poolWin; j++){
-						if(sw_conv_result[y+i][x+j][z] > temp){
-							temp = sw_conv_result[y+i][x+j][z];
-						}
-					}
-				}
-				sw_result[y/poolWin][x/poolWin][z] = temp;
-			}
-		}
-	}
-}
-
-template<unsigned inRow, unsigned inCol, unsigned inChannel, unsigned outChannel, unsigned kerSize>
-void SW_FCN(
-		data_t ***sw_result,
-		data_t ***act,
-		data_t weight[kerSize][kerSize][outChannel][inChannel]){
-
-	for(int o = 0; o < outChannel; o++){
-		psum_t acc = 0;
-		for(int i = 0; i < inChannel; i++){
-			acc += weight[0][0][o][i] * act[0][0][i];
-
-		}
-		sw_result[0][0][o] = acc;
 	}
 }

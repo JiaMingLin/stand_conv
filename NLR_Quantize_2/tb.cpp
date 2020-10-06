@@ -6,13 +6,13 @@ int main(){
 	const int inRow = 32, inCol = 32, outRow = 32, outCol = 32;
 	const int inChannel=3, outChannel=32;
 
-	const int Tr = 8, Tc = 8;
+	const int Tr = 32, Tc = 32;
 	const int kerSize = 3;
 	const int stride = 1;
 	const int poolWin = 1;
 
-	float multiplier = 0.00319836032576859;
-	int zpW = 124, zpX = 7, zpXNext = 7;
+	float multiplier = 0.002746367361396551;
+	data_t zpW = 128, zpX = 7, zpXNext = 7;
 
 	int inTiles = divide_ceil(inChannel, Ti);
 	int outTiles = divide_ceil(outChannel, To);
@@ -49,7 +49,7 @@ int main(){
 	DoCompute(hw_input, hw_output, hw_wgt,
 	 		inRow, inCol, inChannel, outChannel,
 	 		Tr, Tc, kerSize, stride, poolWin,
-			multiplier, zpW, zpX, zpXNext);
+			multiplier, zpX, zpW, zpXNext);
 //	OFMMonitorLinear(hw_output, outRow, outCol, outChannel);
 
 	OFMConvert<outChannel>(hw_result, hw_output, outRow, outCol);
@@ -58,19 +58,23 @@ int main(){
 
 	int err = 0;
  	for(int k = 0; k < outChannel; k++){
- 		printf("================== channel = %d ===============\n", (k));
+// 		printf("================== channel = %d ===============\n", (k));
  		for(int i = 0; i < outRow; i++){
  			for(int j = 0; j < outCol; j++){
  				if(sw_result[i][j][k] != hw_result[i][j][k]){
  					err++;
  				}
- 				cout << sw_result[i][j][k] << ":" << hw_result[i][j][k] << ", ";
+// 				cout << sw_result[i][j][k] << ":" << hw_result[i][j][k] << ", ";
 // 				cout << sw_result[i][j][k] << ", ";
  			}
- 			printf("\n");
+// 			printf("\n");
  		}
  	}
  	printf("==================== errors = %d ===========================\n", err);
+
+//	float a = 123.674, b = -23.111, c = 567, d = 123.4999;
+//typedef ap_ufixed<8,8,AP_RND_CONV,AP_SAT> clamp_round_t;
+//	cout << "a = " << (clamp_round_t)a << ", b = " << (clamp_round_t)d << ", c = " << (clamp_round_t)c << ", d = " << (clamp_round_t)d
 	return err;
 
 }

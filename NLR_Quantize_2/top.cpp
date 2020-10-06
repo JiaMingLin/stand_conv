@@ -21,7 +21,7 @@ void DoCompute(
 		uint128 *raw_wgt,
 		int inRow, int inCol, int inChannel, int outChannel,
 		int Tr, int Tc, int kerSize, int stride, int poolWin,
-		float multiplier, int zpW, int zpX, int zpXNext){
+		float multiplier, data_t zpX, data_t zpW, data_t zpXNext){
 
 #pragma HLS INTERFACE m_axi depth=4096 port=ifm offset=slave bundle=INPUT
 #pragma HLS INTERFACE m_axi depth=2304 port=raw_wgt offset=slave  bundle=INPUT
@@ -42,8 +42,10 @@ void DoCompute(
 #pragma HLS INTERFACE s_axilite port=zpXNext bundle=CTRL_BUS
 
 	uintTi act[MAX_TILE_IN_HEIGHT][MAX_TILE_IN_WIDTH];
-	uintAcc psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH];
 	uintTi wgt[MAX_KERNEL_SIZE][MAX_KERNEL_SIZE][To];
+
+	psum_t psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH][To];
+#pragma HLS ARRAY_RESHAPE variable=psum_output complete dim=3
 
 	int tileNumX = divide_ceil(inCol, Tc*stride);
 	int tileNumY = divide_ceil(inRow, Tr*stride);
@@ -55,25 +57,20 @@ void DoCompute(
 	int outTc = Tc;
 	int outTr = Tr;
 	int padding = (kerSize % 2 == 0)? kerSize/2: (kerSize-1)/2;
+	int maskBit = 0;
 
 	// loop order at tile level: row major
 	// TODO: comparing with channel major on tile ordering level
 	for(int tidOut = 0; tidOut < tileNumOut; tidOut++){
-#pragma HLS LOOP_TRIPCOUNT min=4 max=4 avg=4
 		for(int tidY = 0; tidY < tileNumY; tidY++){
-#pragma HLS LOOP_TRIPCOUNT min=4 max=4 avg=4
 			for(int tidX = 0; tidX < tileNumX; tidX++){
-#pragma HLS LOOP_TRIPCOUNT min=4 max=4 avg=4
-
 				// psum initialize
-				InitPSUM<uintAcc>(psum_output);
-
+				InitPSUM<psum_t>(psum_output);
 				for(int tidIn = 0; tidIn < tileNumIn; tidIn++){
-#pragma HLS LOOP_TRIPCOUNT min=2 max=2 avg=2
 					// load activation
 
 					LoadActivation(
-						ifm, act, zpX,
+						ifm, act,
 						inRow, inCol, Tr, Tc,
 						tidY, tidX, tidIn,
 						inTr, inTc, padding);
@@ -82,18 +79,21 @@ void DoCompute(
 
 					 //load weightf
 					LoadWeight(
-					 	raw_wgt,wgt, zpW,
+					 	raw_wgt,wgt,
 					 	tidIn, tidOut, tileNumIn,
 						kerSize);
 
 //					WGTMonitorTile(wgt,tidOut, tidIn,kerSize);
 
+					maskBit = inChannel - (tidIn*Ti);
+					maskBit = (maskBit > 0)? maskBit:(-1)*maskBit;
+					maskBit = maskBit % Ti;
 					 // operation
-					HWConv<To>(wgt, act, psum_output,
-							kerSize, kerSize, Tr, Tc, stride);
+					HWConv<To>(wgt, act, psum_output, zpX, zpW,
+							kerSize, kerSize, Tr, Tc, stride, inRow, inCol, maskBit);
 				}
 
-//				OFMMonitorTile<data_t>(psum_output, Tr, Tc);
+//				OFMMonitorTile<psum_t>(psum_output, Tr, Tc);
 				// output result
 				WriteOutput(ofm, psum_output,
 					multiplier, zpXNext,
@@ -105,14 +105,6 @@ void DoCompute(
 		}
 	}
 	return;
-}
-
-
-void Pooling(
-		int Tr, int Tc, int outTr, int outTc,
-		uintAcc psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH]){
-	int poolWin = 2;
-
 }
 
 
@@ -129,7 +121,6 @@ bool notBoundary(int i, int j, int anchorX, int anchorY, int inRow, int inCol){
 void LoadActivation(
 		uint128 *ifm,
 		uintTi act[MAX_TILE_IN_HEIGHT][MAX_TILE_IN_WIDTH],
-		data_t zpX,
 		int inRow, int inCol,
 		int Tr, int Tc, int tidY, int tidX, int tidIn,
 		int inTr, int inTc,
@@ -153,7 +144,7 @@ void LoadActivation(
 			if(notBoundary(i,j,anchorX,anchorY,inRow,inCol)){
 #ifdef ULTRA96
 				for(int k = 0; k < WORD_LENGTH; k++){
-					buffer.range((k+1)*PREC-1, k*PREC) = (data_t)(ifm[lineOffset].range((k+1)*PREC-1, k*PREC) - zpX);
+					buffer.range((k+1)*PREC-1, k*PREC) = (data_t)(ifm[lineOffset].range((k+1)*PREC-1, k*PREC));
 //					buffer.data[k] = 1;
 				}
 #else
@@ -183,7 +174,6 @@ void LoadActivation(
 void LoadWeight(
 		uint128 *raw_wgt, //row_t<data_t, WORD_LENGTH> hw_wgt[ker_size*ker_size*To];
 		uintTi wgt[MAX_KERNEL_SIZE][MAX_KERNEL_SIZE][To],
-		data_t zpW,
 		int tidIn, int tidOut, int tileNumIn,
 		int kerSize){
 
@@ -198,7 +188,7 @@ void LoadWeight(
 #ifdef ULTRA96
 #pragma HLS PIPELINE II = 1
 				for(int i = 0; i < WORD_LENGTH; i++){
-					buffer.range((i+1)*PREC-1, i*PREC) = (data_t)(raw_wgt[offset].range((i+1)*PREC-1, i*PREC) - zpW);
+					buffer.range((i+1)*PREC-1, i*PREC) = (data_t)(raw_wgt[offset].range((i+1)*PREC-1, i*PREC));
 				}
 #else
 #pragma HLS PIPELINE II = 2
@@ -231,9 +221,11 @@ data_t ReluMAX(data_t a, data_t b, data_t c, data_t d){
 	return (t1 > t2)?t1:t2;
 }
 
-psum_t scale(psum_t result, float multiplier, data_t zpXNext){
+data_t scale(psum_t result, float multiplier, data_t zpXNext){
 #pragma HLS INLINE
-	return (result*multiplier) + zpXNext;
+
+	return (clamp_round_t)((result*multiplier) + zpXNext);
+//	return (clamp_round_t)result;
 }
 
 /*
@@ -242,7 +234,7 @@ psum_t scale(psum_t result, float multiplier, data_t zpXNext){
  */
 void WriteOutput(
 		uint128 *ofm,
-		uintAcc psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH],
+		psum_t psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH][To],
 		float multiplier, data_t zpXNext,
 		int tidY, int tidX, int tidOut,
 		int Tr, int Tc, int row, int column,
@@ -271,7 +263,7 @@ void WriteOutput(
 #pragma HLS PIPELINE ii = 1
 				for(int o = 0; o < To; o++){
 					buffer.range((o+1)*PREC-1, o*PREC) =
-							(data_t)scale(psum_output[y][x].range((o+1)*ACC_PREC-1, o*ACC_PREC), multiplier, zpXNext);
+							scale(psum_output[y][x][o], multiplier, zpXNext);
 				}
 				// write to output
 				WriteDRAM(ofm, buffer, wordOffset);
@@ -290,10 +282,10 @@ void WriteOutput(
 				for(int o = 0; o < To; o++){
 #pragma UNROLL
 					// re-scale then pooling
-					data_t xx = (data_t)(psum_output[y][x].range((o+1)*ACC_PREC-1, o*ACC_PREC));
-					data_t xy = (data_t)(psum_output[y+1][x].range((o+1)*ACC_PREC-1, o*ACC_PREC));
-					data_t yx = (data_t)(psum_output[y][x+1].range((o+1)*ACC_PREC-1, o*ACC_PREC));
-					data_t yy = (data_t)(psum_output[y+1][x+1].range((o+1)*ACC_PREC-1, o*ACC_PREC));
+					data_t xx = scale(psum_output[y][x][o], multiplier, zpXNext);
+					data_t xy = scale(psum_output[y+1][x][o], multiplier, zpXNext);
+					data_t yx = scale(psum_output[y][x+1][o], multiplier, zpXNext);
+					data_t yy = scale(psum_output[y+1][x+1][o], multiplier, zpXNext);
 					data_t d = ReluMAX(xx, xy, yx, yy);
 					buffer.range((o+1)*PREC-1, o*PREC) = d.range(PREC-1,0);
 				}
