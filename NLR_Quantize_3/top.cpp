@@ -52,6 +52,15 @@ void DoCompute(
 	int tileNumIn = divide_ceil(inChannel, Ti);
 	int tileNumOut = divide_ceil(outChannel, To);
 
+	int anchorX = 0, anchorY = 0, offset = 0;
+
+	// anchor on the feature map plane
+//	int anchorX = tidX * Tc - padding;
+//	int anchorY = tidY * Tr - padding;
+//
+//	// position in the tile plane
+//	int offset = anchorY*inCol + anchorX + tidIn*inRow*inCol;
+
 	int inTc = Tc * stride + (kerSize-stride);   // inTc = inTr = 5 while testing
 	int inTr = Tr * stride + (kerSize-stride);
 	int outTc = Tc;
@@ -67,13 +76,17 @@ void DoCompute(
 				// psum initialize
 				InitPSUM<psum_t>(psum_output);
 				for(int tidIn = 0; tidIn < tileNumIn; tidIn++){
+
+					anchorY = tidY * Tr - padding;
+					anchorX = tidX * Tc - padding;
+					offset = anchorY*inCol + anchorX + tidIn*inRow*inCol;
 					// load activation
 
 					LoadActivation(
 						ifm, act,
 						inRow, inCol, Tr, Tc,
-						tidY, tidX, tidIn,
-						inTr, inTc, padding);
+						anchorY, anchorX, offset,
+						inTr, inTc);
 
 //					IFMMonitorTile(act, tidY, tidX, tidIn, inTr, inTc);
 
@@ -88,9 +101,14 @@ void DoCompute(
 					maskBit = inChannel - (tidIn*Ti);
 					maskBit = (maskBit > 0)? maskBit:(-1)*maskBit;
 					maskBit = maskBit % Ti;
+
+
+
 					 // operation
 					HWConv<To>(wgt, act, psum_output, zpX, zpW,
-							kerSize, kerSize, Tr, Tc, stride, inRow, inCol, maskBit);
+							kerSize, kerSize, Tr, Tc, stride, padding,
+							anchorY, anchorX,
+							inRow, inCol, maskBit);
 				}
 
 //				OFMMonitorTile<psum_t>(psum_output, Tr, Tc, tidX, tidY, tidOut);
@@ -107,13 +125,6 @@ void DoCompute(
 	return;
 }
 
-
-bool notBoundary(int i, int j, int anchorX, int anchorY, int inRow, int inCol){
-	int ptrX = anchorX + j;
-	int ptrY = anchorY + i;
-	return ptrX >= 0 && ptrY >= 0 && ptrX < inCol && ptrY < inRow;
-}
-
 /*
  * inTr: input tile height
  * inTc: input tile width
@@ -122,26 +133,16 @@ void LoadActivation(
 		uint128 *ifm,
 		uintTi act[MAX_TILE_IN_HEIGHT][MAX_TILE_IN_WIDTH],
 		int inRow, int inCol,
-		int Tr, int Tc, int tidY, int tidX, int tidIn,
-		int inTr, int inTc,
-		int padding){
-
-	// anchor on the feature map plane
-	int anchorX = tidX * Tc - padding;
-	int anchorY = tidY * Tr - padding;
-
-	// position in the tile plane
-	int offset = anchorY*inCol + anchorX + tidIn*inRow*inCol;
+		int Tr, int Tc, int anchorY, int anchorX, int offset,
+		int inTr, int inTc){
 
 	uintTi buffer;
 
 	for(int i = 0; i < inTr; i++){
-#pragma HLS LOOP_TRIPCOUNT min=10 max=10 avg=10
 		for(int j = 0; j < inTc; j++){
-#pragma HLS LOOP_TRIPCOUNT min=10 max=10 avg=10
 #pragma HLS PIPELINE II = 2
 			int lineOffset = (offset + j)*WORDS_PER_LINE;
-			if(notBoundary(i,j,anchorX,anchorY,inRow,inCol)){
+			if(notBoundary(i,j,anchorY,anchorX,inRow,inCol)){
 #ifdef ULTRA96
 				for(int k = 0; k < WORD_LENGTH; k++){
 					buffer.range((k+1)*PREC-1, k*PREC) = (data_t)(ifm[lineOffset].range((k+1)*PREC-1, k*PREC));

@@ -93,13 +93,11 @@ void Convolution(uint128 *ifm,
 		uintAcc psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH]);
 
 void LoadActivation(
-		uint128 *input,
+		uint128 *ifm,
 		uintTi act[MAX_TILE_IN_HEIGHT][MAX_TILE_IN_WIDTH],
 		int inRow, int inCol,
-		int Tr, int Tc, 
-		int tidY, int tidX, int tidIn, 
-		int inTr, int inTc,
-		int padding);
+		int Tr, int Tc, int anchorY, int anchorX, int offset,
+		int inTr, int inTc);
 
 void LoadWeight(
 		uint128 *raw_wgt,
@@ -139,6 +137,13 @@ int minimum(int a, int b){
 		return b;
 	}
 	return a;
+}
+
+inline
+bool notBoundary(int i, int j, int anchorY, int anchorX , int inRow, int inCol){
+	int ptrX = anchorX + j;
+	int ptrY = anchorY + i;
+	return ptrX >= 0 && ptrY >= 0 && ptrX < inCol && ptrY < inRow;
 }
 
 inline
@@ -698,8 +703,8 @@ psum_t PE(ACC_T psum,
 //			cout << (int)((psum_t)(act.range((i+1)*PREC-1, i*PREC)) - zpX) << " * " <<
 //					(int)((psum_t)(wgt.range((i+1)*PREC-1, i*PREC)) - zpW) << ", ";
 
-			psum += ((psum_t)(act.range((i+1)*PREC-1, i*PREC)) - zpX) *
-					((psum_t)(wgt.range((i+1)*PREC-1, i*PREC)) - zpW);
+			psum += ((ap_int<9>)(act.range((i+1)*PREC-1, i*PREC)) - zpX) *
+					((ap_int<9>)(wgt.range((i+1)*PREC-1, i*PREC)) - zpW);
 		}
 	}
 //	cout << endl;
@@ -712,32 +717,32 @@ void HWConv(
 		uintTi act[MAX_TILE_IN_HEIGHT][MAX_TILE_IN_WIDTH],
 		psum_t psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH][To],
 		data_t zpX, data_t zpW,
-		int k1, int k2, int Tr, int Tc, int stride,
+		int k1, int k2, int Tr, int Tc, int stride, int padding,
+		int anchorY, int anchorX,
 		int inRow, int inCol, int maskBit
 ){
 #pragma HLS ALLOCATION instances=PE limit=numPE function
 
 #pragma HLS ARRAY_PARTITION variable=wgt dim=3 complete
 
-	CONV_LOOP_KI:for(int ki = -1; ki < k1-1; ki++){
-#pragma HLS LOOP_TRIPCOUNT min=3 max=3 avg=3
-		CONV_LOOP_KJ:for(int kj = -1; kj < k2-1; kj++){
-#pragma HLS LOOP_TRIPCOUNT min=3 max=3 avg=3
+	CONV_LOOP_KI:for(int ki = -padding; ki < k1-padding; ki++){
+		CONV_LOOP_KJ:for(int kj = -padding; kj < k2-padding; kj++){
 			CONV_LOOP_TR:for(int r = 0; r < Tr; r++){
-#pragma HLS LOOP_TRIPCOUNT min=8 max=8 avg=8
 				CONV_LOOP_TC:for(int c = 0; c < Tc; c++){
-#pragma HLS LOOP_TRIPCOUNT min=8 max=8 avg=8
 #pragma HLS PIPELINE
-					if(r+ki >= 0 && c+kj >= 0 && r+ki < inRow && c+kj < inCol){
+					if(notBoundary(r+ki+padding, c+kj+padding, anchorY, anchorX, inRow, inCol)){
 						CONV_LOOP_TI:for(int o = 0; o < To; o++){
-						#pragma HLS UNROLL
+#pragma HLS UNROLL
 							psum_output[r][c][o] = PE<psum_t>(
 								psum_output[r][c][o],
-								act[r+ki+1][c+kj+1],
-								wgt[ki+1][kj+1][o],
+								act[r+ki+padding][c+kj+padding],
+								wgt[ki+padding][kj+padding][o],
 								zpX, zpW, maskBit
 							);
 						}
+					}
+					if(r+ki >= 0 && c+kj >= 0 && r+ki < inRow && c+kj < inCol){
+
 					}
 				}
 			}
@@ -757,3 +762,5 @@ void InitPSUM(T psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH][To]){
 		}
 	}
 }
+
+

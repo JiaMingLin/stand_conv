@@ -22,9 +22,10 @@ class Module(object):
 			print("Initialize Hardware...: load bitstream")
 			self.xlnk = Xlnk()
 			self.xlnk.xlnk_reset()
+			self.overlay = Overlay(self.bitstream_path)
 
-			self.core0 = Overlay(self.bitstream_path).DoCompute_0
-			# self.core1 = Overlay(self.bitstream_path).DoCompute_1
+			self.core0 = self.overlay.DoCompute_0
+			self.core1 = self.overlay.DoCompute_1
 
 			# allocate buffer for input image
 			self.input_buff = self.xlnk.cma_array(\
@@ -362,4 +363,12 @@ class Flatten(Module):
 
 class ReLU(Module):
 	def __init__():
+		pass
+
+
+class GenerateOpticalFlow(Module):
+	def __init__():
+		pass
+
+	def __call__():
 		pass

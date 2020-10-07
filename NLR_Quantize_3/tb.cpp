@@ -6,7 +6,7 @@ int main(){
 	const int inRow = 32, inCol = 32, outRow = 32, outCol = 32;
 	const int inChannel=3, outChannel=32;
 
-	const int Tr = 16, Tc = 16;
+	const int Tr = 8, Tc = 8;
 	const int kerSize = 3;
 	const int stride = 1;
 	const int poolWin = 1;
