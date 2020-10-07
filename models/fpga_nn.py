@@ -1,4 +1,5 @@
 import configparser
+import struct
 import numpy as np
 import conv_operation as co
 import time
@@ -114,8 +115,14 @@ class Module(object):
 		return fm_buff, wgt_buff
 
 	def setting(self, ofm_buff, ifm_buff, wgt_buff,\
-	 out_channel, in_channel, in_height, in_width, ker=3, s=1, poolWin=1):
+	 out_channel, in_channel, in_height, in_width,\
+	 multiplier, zp_x, zp_w, zp_x_next,\
+	 ker=3, s=1, poolWin=1):
 
+		def float_to_byte(f):
+			return struct.pack('f', f)
+
+		print(type(float_to_byte(multiplier)))
 		self.core0.write(0x10, ifm_buff.physical_address)
 		self.core0.write(0x18, ofm_buff.physical_address)
 		self.core0.write(0x20, wgt_buff.physical_address)
@@ -128,6 +135,10 @@ class Module(object):
 		self.core0.write(0x58, ker)
 		self.core0.write(0x60, s)
 		self.core0.write(0x68, poolWin)
+		self.core0.write(0x70, float_to_byte(multiplier))
+		self.core0.write(0x78, zp_x)
+		self.core0.write(0x80, zp_w)
+		self.core0.write(0x88, zp_x_next)
 
 	def execute(self):
 		self.core0.write(0x00, 1)
@@ -168,10 +179,10 @@ class Module(object):
 	"""
 	Convert pytorch WGT to Xlnk input
 	Input:
-    	1. wgt: pytorch tensor(out channel, in channel, ker_height, ker_width)
+		1. wgt: pytorch tensor(out channel, in channel, ker_height, ker_width)
 	Output:
-    	1. wgt_cma: Xlnk cma(Depth, WORD_LENGTH), 
-        	Depth = (out_channel/To) * (in_channel/Ti) * To * ker_height * ker_width * (Ti/WORD_LENGTH) * WORD_LENGTH
+		1. wgt_cma: Xlnk cma(Depth, WORD_LENGTH), 
+			Depth = (out_channel/To) * (in_channel/Ti) * To * ker_height * ker_width * (Ti/WORD_LENGTH) * WORD_LENGTH
 	"""
 	def _convert_weight_to_buffer(self, layer):
 		wgt = layer.weight_data
@@ -199,7 +210,9 @@ class Module(object):
 
 
 class Conv2D(Module):
-	def __init__(self, out_channel, in_channel, in_height, in_width, ker=3, s=1):
+	def __init__(self, out_channel, in_channel, in_height, in_width,\
+		multiplier, zp_x, zp_w, zp_x_next,\
+		ker=3, s=1):
 
 		super(Conv2D, self).__init__()
 
@@ -215,6 +228,11 @@ class Conv2D(Module):
 		self.weight_shape = (out_channel, in_channel, ker, ker)
 		self.weight_data = None
 
+		self.multiplier = multiplier
+		self.zp_x = zp_x
+		self.zp_w = zp_w
+		self.zp_x_next = zp_x_next
+
 		self.ofm_buff, self.wgt_buff = \
 		self.mem_alloc(max(out_channel, self.To)\
 			, max(in_channel, self.Ti), self.out_height, self.out_width, ker)
@@ -229,13 +247,19 @@ class Conv2D(Module):
 					 self.in_channel,\
 					 self.in_height,\
 					 self.in_width,\
+					 self.multiplier,\
+					 self.zp_x,\
+					 self.zp_w,\
+					 self.zp_x_next,\
 					 self.ker,\
 					 self.s)
 		self.execute()
 		return self.ofm_buff
 
 class Conv2DPool(Module):
-	def __init__(self, out_channel, in_channel, in_height, in_width, ker=3, s=1, poolWin = 2):
+	def __init__(self, out_channel, in_channel, in_height, in_width,\
+		multiplier, zp_x, zp_w, zp_x_next,\
+		ker=3, s=1, poolWin = 2):
 		super(Conv2DPool, self).__init__()
 		
 		self.type = "conv"
@@ -251,6 +275,11 @@ class Conv2DPool(Module):
 		self.weight_shape = (out_channel, in_channel, ker, ker)
 		self.weight_data = None
 
+		self.multiplier = multiplier
+		self.zp_x = zp_x
+		self.zp_w = zp_w
+		self.zp_x_next = zp_x_next
+
 		self.ofm_buff, self.wgt_buff = \
 		self.mem_alloc(max(out_channel, self.To)\
 			, max(in_channel, self.Ti), self.out_height, self.out_width, ker)
@@ -265,6 +294,10 @@ class Conv2DPool(Module):
 					 self.in_channel,\
 					 self.in_height,\
 					 self.in_width,\
+					 self.multiplier,\
+					 self.zp_x,\
+					 self.zp_w,\
+					 self.zp_x_next,\
 					 poolWin = self.poolWin)
 		self.execute()
 		return self.ofm_buff

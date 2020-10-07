@@ -21,7 +21,7 @@ void DoCompute(
 		uint128 *raw_wgt,
 		int inRow, int inCol, int inChannel, int outChannel,
 		int Tr, int Tc, int kerSize, int stride, int poolWin,
-		float multiplier, int currFMZP, int nextFMZP){
+		float multiplier, data_t zpX, data_t zpW, data_t zpXNext){
 
 #pragma HLS INTERFACE m_axi depth=4096 port=ifm offset=slave bundle=INPUT
 #pragma HLS INTERFACE m_axi depth=2304 port=raw_wgt offset=slave  bundle=INPUT
@@ -37,17 +37,15 @@ void DoCompute(
 #pragma HLS INTERFACE s_axilite port=stride bundle=CTRL_BUS
 #pragma HLS INTERFACE s_axilite port=poolWin bundle=CTRL_BUS
 #pragma HLS INTERFACE s_axilite port=multiplier bundle=CTRL_BUS
-#pragma HLS INTERFACE s_axilite port=currFMZP bundle=CTRL_BUS
-#pragma HLS INTERFACE s_axilite port=nextFMZP bundle=CTRL_BUS
+#pragma HLS INTERFACE s_axilite port=zpW bundle=CTRL_BUS
+#pragma HLS INTERFACE s_axilite port=zpX bundle=CTRL_BUS
+#pragma HLS INTERFACE s_axilite port=zpXNext bundle=CTRL_BUS
 
 	uintTi act[MAX_TILE_IN_HEIGHT][MAX_TILE_IN_WIDTH];
-	uintAcc psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH];
 	uintTi wgt[MAX_KERNEL_SIZE][MAX_KERNEL_SIZE][To];
 
-	inCol = 8; inRow = 8; inChannel = 128; outChannel = 128;
-	poolWin = 1;
-
-	Tr = 8; Tc = 8; kerSize = 3; stride = 1;
+	psum_t psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH][To];
+#pragma HLS ARRAY_RESHAPE variable=psum_output complete dim=3
 
 	int tileNumX = divide_ceil(inCol, Tc*stride);
 	int tileNumY = divide_ceil(inRow, Tr*stride);
@@ -59,25 +57,23 @@ void DoCompute(
 	int outTc = Tc;
 	int outTr = Tr;
 	int padding = (kerSize % 2 == 0)? kerSize/2: (kerSize-1)/2;
+	int maskBit = 0;
 
 	// loop order at tile level: row major
 	// TODO: comparing with channel major on tile ordering level
-	OUT_CHANNEL_TID_LOOP: for(int tidOut = 0; tidOut < tileNumOut; tidOut++){
-		OUT_HEIGHT_TID_LOOP: for(int tidY = 0; tidY < tileNumY; tidY++){
-			OUT_WIDTH_TID_LOOP: for(int tidX = 0; tidX < tileNumX; tidX++){
-
+	for(int tidOut = 0; tidOut < tileNumOut; tidOut++){
+		for(int tidY = 0; tidY < tileNumY; tidY++){
+			for(int tidX = 0; tidX < tileNumX; tidX++){
 				// psum initialize
-				InitPSUM<uintAcc>(psum_output);
-
-				IN_CHANNEL_TID_LOOP: for(int tidIn = 0; tidIn < tileNumIn; tidIn++){
-#pragma HLS LOOP_TRIPCOUNT min=2 max=2 avg=2
+				InitPSUM<psum_t>(psum_output);
+				for(int tidIn = 0; tidIn < tileNumIn; tidIn++){
 					// load activation
 
 					LoadActivation(
 						ifm, act,
 						inRow, inCol, Tr, Tc,
 						tidY, tidX, tidIn,
-						inTr, inTc, padding, currFMZP);
+						inTr, inTc, padding);
 
 //					IFMMonitorTile(act, tidY, tidX, tidIn, inTr, inTc);
 
@@ -89,30 +85,26 @@ void DoCompute(
 
 //					WGTMonitorTile(wgt,tidOut, tidIn,kerSize);
 
+					maskBit = inChannel - (tidIn*Ti);
+					maskBit = (maskBit > 0)? maskBit:(-1)*maskBit;
+					maskBit = maskBit % Ti;
 					 // operation
-					HWConv<To>(wgt, act, psum_output,
-							kerSize, kerSize, Tr, Tc, stride);
+					HWConv<To>(wgt, act, psum_output, zpX, zpW,
+							kerSize, kerSize, Tr, Tc, stride, inRow, inCol, maskBit);
 				}
 
-//				OFMMonitorTile<data_t>(psum_output, Tr, Tc);
+//				OFMMonitorTile<psum_t>(psum_output, Tr, Tc);
 				// output result
 				WriteOutput(ofm, psum_output,
+					multiplier, zpXNext,
 					tidY, tidX, tidOut,
 					Tr, Tc, inRow, inCol,
-					poolWin, multiplier, nextFMZP);
+					poolWin);
 
 			}
 		}
 	}
 	return;
-}
-
-
-void Pooling(
-		int Tr, int Tc, int outTr, int outTc,
-		uintAcc psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH]){
-	int poolWin = 2;
-
 }
 
 
@@ -132,7 +124,7 @@ void LoadActivation(
 		int inRow, int inCol,
 		int Tr, int Tc, int tidY, int tidX, int tidIn,
 		int inTr, int inTc,
-		int padding, data_t currFMZP){
+		int padding){
 
 	// anchor on the feature map plane
 	int anchorX = tidX * Tc - padding;
@@ -144,13 +136,15 @@ void LoadActivation(
 	uintTi buffer;
 
 	for(int i = 0; i < inTr; i++){
+#pragma HLS LOOP_TRIPCOUNT min=10 max=10 avg=10
 		for(int j = 0; j < inTc; j++){
+#pragma HLS LOOP_TRIPCOUNT min=10 max=10 avg=10
 #pragma HLS PIPELINE II = 2
 			int lineOffset = (offset + j)*WORDS_PER_LINE;
 			if(notBoundary(i,j,anchorX,anchorY,inRow,inCol)){
 #ifdef ULTRA96
 				for(int k = 0; k < WORD_LENGTH; k++){
-					buffer.range((k+1)*PREC-1, k*PREC) = ifm[lineOffset].range((k+1)*PREC-1, k*PREC)-currFMZP;
+					buffer.range((k+1)*PREC-1, k*PREC) = (data_t)(ifm[lineOffset].range((k+1)*PREC-1, k*PREC));
 //					buffer.data[k] = 1;
 				}
 #else
@@ -194,7 +188,7 @@ void LoadWeight(
 #ifdef ULTRA96
 #pragma HLS PIPELINE II = 1
 				for(int i = 0; i < WORD_LENGTH; i++){
-					buffer.range((i+1)*PREC-1, i*PREC) = raw_wgt[offset].range((i+1)*PREC-1, i*PREC);
+					buffer.range((i+1)*PREC-1, i*PREC) = (data_t)(raw_wgt[offset].range((i+1)*PREC-1, i*PREC));
 				}
 #else
 #pragma HLS PIPELINE II = 2
@@ -217,9 +211,9 @@ void LoadWeight(
 //#pragma HLS INLINE
 //	return (data_t)multiplier*ofmData + nextFMZP;
 //}
-
-data_t ReluMAX(data_t a, data_t b, data_t c, data_t d){
-	data_t t1; data_t t2;
+template<typename T>
+T ReluMAX(T a, T b, T c, T d){
+	T t1; T t2;
 
 	t1 = (a>b)?a:b;
 	t2 = (c>d)?c:d;
@@ -233,11 +227,11 @@ data_t ReluMAX(data_t a, data_t b, data_t c, data_t d){
  */
 void WriteOutput(
 		uint128 *ofm,
-		uintAcc psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH],
+		psum_t psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH][To],
+		float multiplier, data_t zpXNext,
 		int tidY, int tidX, int tidOut,
 		int Tr, int Tc, int row, int column,
-		int poolWin,
-		float multiplier, int nextFMZP
+		int poolWin
 		){
 
 	int outRow = divide_ceil(row, poolWin);
@@ -252,7 +246,9 @@ void WriteOutput(
 			+ tidX*outTc*WORDS_PER_LINE; // in a row, column level
 
 	int wordOffset = offset;
-	uintTo buffer;
+
+	psum_t buffer[To];
+#pragma HLS ARRAY_PARTITION variable=buffer dim=0 complete
 
 	if(poolWin == 1){
 		// for the current tile
@@ -261,11 +257,10 @@ void WriteOutput(
 			for(int x = 0; x < Tc; x++){
 #pragma HLS PIPELINE ii = 1
 				for(int o = 0; o < To; o++){
-					buffer.range((o+1)*PREC-1, o*PREC) =
-							(data_t)(psum_output[y][x].range((o+1)*ACC_PREC-1, o*ACC_PREC));
+					buffer[o] = psum_output[y][x][o];
 				}
 				// write to output
-				WriteDRAM(ofm, buffer, wordOffset);
+				WriteDRAM(ofm, buffer, wordOffset, multiplier, zpXNext);
 				// offset on x direction
 				wordOffset += WORDS_PER_LINE;
 			}
@@ -281,16 +276,15 @@ void WriteOutput(
 				for(int o = 0; o < To; o++){
 #pragma UNROLL
 					// re-scale then pooling
-					data_t xx = (data_t)(psum_output[y][x].range((o+1)*ACC_PREC-1, o*ACC_PREC));
-					data_t xy = (data_t)(psum_output[y+1][x].range((o+1)*ACC_PREC-1, o*ACC_PREC));
-					data_t yx = (data_t)(psum_output[y][x+1].range((o+1)*ACC_PREC-1, o*ACC_PREC));
-					data_t yy = (data_t)(psum_output[y+1][x+1].range((o+1)*ACC_PREC-1, o*ACC_PREC));
-					data_t d = ReluMAX(xx, xy, yx, yy);
-					buffer.range((o+1)*PREC-1, o*PREC) = d.range(PREC-1,0);
+					psum_t xx = psum_output[y][x][o];
+					psum_t xy = psum_output[y+1][x][o];
+					psum_t yx = psum_output[y][x+1][o];
+					psum_t yy = psum_output[y+1][x+1][o];
+					buffer[o] = ReluMAX<psum_t>(xx, xy, yx, yy);
 				}
 
 				// write to output
-				WriteDRAM(ofm, buffer, wordOffset);
+				WriteDRAM(ofm, buffer, wordOffset, multiplier, zpXNext);
 
 				// offset on x direction
 				wordOffset += WORDS_PER_LINE;
@@ -300,15 +294,21 @@ void WriteOutput(
 	}
 }
 
+data_t scale(psum_t result, float multiplier, data_t zpXNext){
+#pragma HLS INLINE off
+	return (data_t)((result*multiplier) + zpXNext);
+}
+
 void WriteDRAM(
-	uint128 *ofm, uintTo buffer,
-	int ptr){
+	uint128 *ofm, psum_t buffer[To],
+	int ptr, float multiplier, data_t zpXNext){
 #pragma HLS INLINE
+#pragma HLS ALLOCATION instances=scale limit=16 function
 
 #ifdef ULTRA96
 	for(int i = 0; i < WORD_LENGTH; i++){
 #pragma HLS UNROLL
-		ofm[ptr].range((i+1)*PREC-1, i*PREC) = buffer.range((i+1)*PREC-1, i*PREC);
+		ofm[ptr].range((i+1)*PREC-1, i*PREC) = scale(buffer[i], multiplier, zpXNext);
 	}
 #else
 

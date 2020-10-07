@@ -6,13 +6,12 @@ int main(){
 	const int inRow = 32, inCol = 32, outRow = 32, outCol = 32;
 	const int inChannel=3, outChannel=32;
 
-	const int Tr = 16, Tc = 16;
+	const int Tr = 32, Tc = 32;
 	const int kerSize = 3;
 	const int stride = 1;
 	const int poolWin = 1;
 
 	float multiplier = 0.002746367361396551;
-	cout << multiplier << endl;
 	data_t zpW = 128, zpX = 7, zpXNext = 7;
 
 	int inTiles = divide_ceil(inChannel, Ti);
@@ -55,20 +54,20 @@ int main(){
 
 	OFMConvert<outChannel>(hw_result, hw_output, outRow, outCol);
 
-//	OFMMonitor<outChannel>(hw_result, outRow, outCol);
+	OFMMonitor<outChannel>(hw_result, outRow, outCol);
 
 	int err = 0;
  	for(int k = 0; k < outChannel; k++){
- 		printf("================== channel = %d ===============\n", (k));
+// 		printf("================== channel = %d ===============\n", (k));
  		for(int i = 0; i < outRow; i++){
  			for(int j = 0; j < outCol; j++){
  				if(sw_result[i][j][k] != hw_result[i][j][k]){
  					err++;
  				}
- 				cout << sw_result[i][j][k] << ":" << hw_result[i][j][k] << ", ";
+// 				cout << sw_result[i][j][k] << ":" << hw_result[i][j][k] << ", ";
 // 				cout << sw_result[i][j][k] << ", ";
  			}
- 			printf("\n");
+// 			printf("\n");
  		}
  	}
  	printf("==================== errors = %d ===========================\n", err);

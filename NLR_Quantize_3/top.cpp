@@ -93,7 +93,7 @@ void DoCompute(
 							kerSize, kerSize, Tr, Tc, stride, inRow, inCol, maskBit);
 				}
 
-//				OFMMonitorTile<psum_t>(psum_output, Tr, Tc);
+//				OFMMonitorTile<psum_t>(psum_output, Tr, Tc, tidX, tidY, tidOut);
 				// output result
 				WriteOutput(ofm, psum_output,
 					multiplier, zpXNext,

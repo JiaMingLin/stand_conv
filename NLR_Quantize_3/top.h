@@ -24,8 +24,8 @@ using namespace hls;
 #define MAX_TILE_OUT_WIDTH 3
 
 #else
-#define MAX_TILE_OUT_HEIGHT 32
-#define MAX_TILE_OUT_WIDTH 32
+#define MAX_TILE_OUT_HEIGHT 48
+#define MAX_TILE_OUT_WIDTH 48
 #endif
 
 #define MAX_STRIDE 2
@@ -593,9 +593,10 @@ void OFMMonitorLinear(
 template<typename T>
 void OFMMonitorTile(
 		psum_t psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH][To], int Tr, int Tc
+		, int tidX, int tidY, int tidOut
 ){
 	for(int o = 0; o < To; o++){
-		cout << "Out Channel Index = " << o << endl;
+		printf("TidX = %d, TidY = %d, TidOut = %d, Channel index = %d \n", tidX, tidY, tidOut, o);
 		for(int i = 0; i < Tr; i++){
 			for(int j = 0; j < Tc; j++){
 				cout << (T)psum_output[i][j][o] << ", ";

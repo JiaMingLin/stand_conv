@@ -697,8 +697,8 @@ psum_t PE(ACC_T psum,
 //			cout << (int)((psum_t)(act.range((i+1)*PREC-1, i*PREC)) - zpX) << " * " <<
 //					(int)((psum_t)(wgt.range((i+1)*PREC-1, i*PREC)) - zpW) << ", ";
 
-			psum += ((psum_t)(act.range((i+1)*PREC-1, i*PREC)) - zpX) *
-					((psum_t)(wgt.range((i+1)*PREC-1, i*PREC)) - zpW);
+			psum += ((ap_int<9>)(act.range((i+1)*PREC-1, i*PREC)) - zpX) *
+					((ap_int<9>)(wgt.range((i+1)*PREC-1, i*PREC)) - zpW);
 		}
 	}
 //	cout << endl;
