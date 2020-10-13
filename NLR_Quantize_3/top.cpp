@@ -66,7 +66,7 @@ void DoCompute(
 	int outTc = Tc;
 	int outTr = Tr;
 	int padding = (kerSize % 2 == 0)? kerSize/2: (kerSize-1)/2;
-	int maskBit = 0;
+	int enableBit = 0;
 
 	// loop order at tile level: row major
 	// TODO: comparing with channel major on tile ordering level
@@ -98,17 +98,18 @@ void DoCompute(
 
 //					WGTMonitorTile(wgt,tidOut, tidIn,kerSize);
 
-					maskBit = inChannel - (tidIn*Ti);
-					maskBit = (maskBit > 0)? maskBit:(-1)*maskBit;
-					maskBit = maskBit % Ti;
-
-
+					enableBit = inChannel - tidIn*Ti;
+					if(enableBit < Ti){
+						enableBit = Ti-enableBit;
+					}else{
+						enableBit = Ti;
+					}
 
 					 // operation
 					HWConv<To>(wgt, act, psum_output, zpX, zpW,
 							kerSize, kerSize, Tr, Tc, stride, padding,
 							anchorY, anchorX,
-							inRow, inCol, maskBit);
+							inRow, inCol, enableBit);
 				}
 
 //				OFMMonitorTile<psum_t>(psum_output, Tr, Tc, tidX, tidY, tidOut);

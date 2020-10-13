@@ -694,12 +694,12 @@ psum_t PE(ACC_T psum,
 		uintTi wgt,
 		data_t zpX,
 		data_t zpW,
-		int maskBit){
+		int enableBit){
 #pragma HLS INLINE OFF
 
 	for(int i = 0; i < Ti; i++){
 #pragma HLS UNROLL
-		if(i < maskBit){
+		if(i < enableBit){
 //			cout << (int)((psum_t)(act.range((i+1)*PREC-1, i*PREC)) - zpX) << " * " <<
 //					(int)((psum_t)(wgt.range((i+1)*PREC-1, i*PREC)) - zpW) << ", ";
 
@@ -719,7 +719,7 @@ void HWConv(
 		data_t zpX, data_t zpW,
 		int k1, int k2, int Tr, int Tc, int stride, int padding,
 		int anchorY, int anchorX,
-		int inRow, int inCol, int maskBit
+		int inRow, int inCol, int enableBit
 ){
 #pragma HLS ALLOCATION instances=PE limit=numPE function
 
@@ -743,7 +743,7 @@ void HWConv(
 									psum_output[r][c][o],
 								act[r+ki+padding][c+kj+padding],
 								wgt[ki+padding][kj+padding][o],
-								zpX, zpW, maskBit
+								zpX, zpW, enableBit
 							);
 						}
 					}
