@@ -12,7 +12,6 @@ int main(){
 	const int poolWin = 1;
 
 	float multiplier = 0.002746367361396551;
-	cout << multiplier << endl;
 	data_t zpW = 128, zpX = 7, zpXNext = 7;
 
 	int inTiles = divide_ceil(inChannel, Ti);

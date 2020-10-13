@@ -45,7 +45,7 @@ void DoCompute(
 	uintTi wgt[MAX_KERNEL_SIZE][MAX_KERNEL_SIZE][To];
 
 	psum_t psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH][To];
-#pragma HLS ARRAY_RESHAPE variable=psum_output complete dim=3
+#pragma HLS ARRAY_PARTITION variable=psum_output complete dim=3
 
 	int tileNumX = divide_ceil(inCol, Tc*stride);
 	int tileNumY = divide_ceil(inRow, Tr*stride);

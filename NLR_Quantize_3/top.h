@@ -695,7 +695,7 @@ psum_t PE(ACC_T psum,
 		data_t zpX,
 		data_t zpW,
 		int maskBit){
-#pragma HLS INLINE off
+#pragma HLS INLINE OFF
 
 	for(int i = 0; i < Ti; i++){
 #pragma HLS UNROLL
@@ -725,24 +725,27 @@ void HWConv(
 
 #pragma HLS ARRAY_PARTITION variable=wgt dim=3 complete
 
+
 	CONV_LOOP_KI:for(int ki = -padding; ki < k1-padding; ki++){
+#pragma HLS LOOP_TRIPCOUNT min=3 max=3 avg=3
 		CONV_LOOP_KJ:for(int kj = -padding; kj < k2-padding; kj++){
+#pragma HLS LOOP_TRIPCOUNT min=3 max=3 avg=3
 			CONV_LOOP_TR:for(int r = 0; r < Tr; r++){
+#pragma HLS LOOP_TRIPCOUNT min=16 max=16 avg=16
 				CONV_LOOP_TC:for(int c = 0; c < Tc; c++){
+#pragma HLS LOOP_TRIPCOUNT min=16 max=16 avg=16
 #pragma HLS PIPELINE
 					if(notBoundary(r+ki+padding, c+kj+padding, anchorY, anchorX, inRow, inCol)){
-						CONV_LOOP_TI:for(int o = 0; o < To; o++){
+
+						CONV_LOOP_TO_COMP:for(int o = 0; o < To; o++){
 #pragma HLS UNROLL
 							psum_output[r][c][o] = PE<psum_t>(
-								psum_output[r][c][o],
+									psum_output[r][c][o],
 								act[r+ki+padding][c+kj+padding],
 								wgt[ki+padding][kj+padding][o],
 								zpX, zpW, maskBit
 							);
 						}
-					}
-					if(r+ki >= 0 && c+kj >= 0 && r+ki < inRow && c+kj < inCol){
-
 					}
 				}
 			}
