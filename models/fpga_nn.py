@@ -25,7 +25,7 @@ class Module(object):
 			self.overlay = Overlay(self.bitstream_path)
 
 			self.core0 = self.overlay.DoCompute_0
-			self.core1 = self.overlay.DoCompute_1
+			# self.core1 = self.overlay.DoCompute_1
 
 			# allocate buffer for input image
 			self.input_buff = self.xlnk.cma_array(\
@@ -50,6 +50,10 @@ class Module(object):
 			self.img_channel = int(config["DataConfig"]["image_channel"])
 			
 			self.WORD_LENGTH = int(ceil(self.data_width/self.precision))
+
+			if self.img_channel % self.WORD_LENGTH != 0:
+				self.img_channel += (self.WORD_LENGTH - (self.img_channel%self.WORD_LENGTH))
+
 			self.buffer_depth = int(ceil((self.img_channel*self.img_height*self.img_width)/self.WORD_LENGTH))
 			print("Initialize configuration...: done") 
 
@@ -164,18 +168,34 @@ class Module(object):
 
 		return 0
 
+	"""
+	raw_image: 
+		1. img_channel < Ti: channel major, append 0
+		2. img_channel > Ti and  img_channel % Ti == 0: 
+			channel major
+		3. 
+	"""
 	def _convert_raw_image_to_buffer(self, raw_image):
 
 		imgH = raw_image.shape[0]
 		imgW = raw_image.shape[1]
 		img_channel = raw_image.shape[2]
 		
-		if img_channel < self.Ti:
+		if img_channel < self.WORD_LENGTH:
 			zero_padding = np.zeros((imgH, imgW, self.Ti-img_channel), dtype = np.uint8)
 			raw_image = np.concatenate((raw_image, zero_padding), axis = 2)
 
+		if img_channel > self.WORD_LENGTH and (img_channel % self.WORD_LENGTH != 0):
+			zero_padding = np.zeros((imgH, imgW, self.WORD_LENGTH-(img_channel % self.WORD_LENGTH)), dtype = np.uint8)
+			raw_image = np.concatenate((raw_image, zero_padding), axis = 2)
 
-		np.copyto(self.input_buff, raw_image.reshape(-1,raw_image.shape[2]))
+		raw_image = np.transpose(raw_image.reshape((imgH, imgW, int(raw_image.shape[2]/self.Ti), self.Ti)), (2,0,1,3))\
+					.reshape((int(raw_image.shape[2]/self.Ti), imgH, imgW, int((self.Ti/self.WORD_LENGTH)), self.WORD_LENGTH))\
+					.reshape(-1, self.WORD_LENGTH)
+
+		print(raw_image)
+
+		np.copyto(self.input_buff, raw_image)
 
 	"""
 	Convert pytorch WGT to Xlnk input

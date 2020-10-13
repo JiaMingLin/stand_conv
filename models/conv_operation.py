@@ -197,8 +197,8 @@ if __name__ == "__main__":
     xlnk = Xlnk()
     xlnk.xlnk_reset()
 
-    in_channel = 16; out_channel = 64
-    inRow = 128; inCol = 128
+    in_channel = 32; out_channel = 64
+    inRow = 16; inCol = 16
     Tr = 8; Tc = 8
     WORD_LENGTH = 16
     kerSize = 3; stride = 1
