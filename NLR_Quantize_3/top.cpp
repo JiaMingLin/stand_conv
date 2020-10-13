@@ -98,10 +98,9 @@ void DoCompute(
 
 //					WGTMonitorTile(wgt,tidOut, tidIn,kerSize);
 
+
 					enableBit = inChannel - tidIn*Ti;
-					if(enableBit < Ti){
-						enableBit = Ti-enableBit;
-					}else{
+					if(enableBit > Ti){
 						enableBit = Ti;
 					}
 

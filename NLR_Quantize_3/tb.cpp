@@ -3,18 +3,26 @@
 int main(){
 
 	srand(30);
+
+#ifndef TEST_CASE
+	float multiplier = 0.002746367361396551;
+	data_t zpW = 128, zpX = 7, zpXNext = 7;
+	const int inRow = 32, inCol = 32, outRow = 32, outCol = 32;
+	const int inChannel=3, outChannel=32;
+	const int poolWin = 1;
+
+#else
+	float multiplier = 0.0019095869502052665;
+	data_t zpW = 109, zpX = 5, zpXNext = 6;
 	const int inRow = 16, inCol = 16, outRow = 8, outCol = 8;
 	const int inChannel=32, outChannel=64;
+	const int poolWin = 2;
+#endif
 
 	const int Tr = 8, Tc = 8;
 	const int kerSize = 3;
 	const int stride = 1;
-	const int poolWin = 2;
 
-//	float multiplier = 0.002746367361396551;
-//	data_t zpW = 128, zpX = 7, zpXNext = 7;
-	float multiplier = 0.0019095869502052665;
-	data_t zpW = 109, zpX = 5, zpXNext = 6;
 
 	int inTiles = divide_ceil(inChannel, Ti);
 	int outTiles = divide_ceil(outChannel, To);

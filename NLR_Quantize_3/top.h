@@ -13,6 +13,7 @@ using namespace hls;
 //#define CSIM_FLAG
 
 #define ULTRA96
+#define TEST_CASE
 
 #define DATAWIDTH 128
 #define PREC 8
@@ -223,7 +224,11 @@ void IFMInit(data_t ***ifm, char* mode){
 		data_t temp[inChannel][inRow][inCol];
 		FILE *latfile;
 
+#ifndef TEST_CASE
 		sprintf(buff,"%s","ifm.dat");
+#else
+		sprintf(buff,"%s","ifm_1.dat");
+#endif
 		latfile=fopen(buff,"r");
 		fread(&(temp[0][0][0]),sizeof(data_t),inRow*inCol*inChannel,latfile);
 		fclose(latfile);
@@ -374,7 +379,11 @@ void WGTInit(data_t ****wgt, char* mode, char* dataMode){
 		data_t temp[outChannel][inChannel][kerSize][kerSize];
 		FILE *latfile;
 
+#ifndef TEST_CASE
 		sprintf(buff,"%s","wgt.dat");
+#else
+		sprintf(buff,"%s","wgt_1.dat");
+#endif
 		latfile=fopen(buff,"r");
 		fread(&(temp[0][0][0][0]),sizeof(data_t),kerSize*kerSize*outChannel*inChannel,latfile);
 		fclose(latfile);
@@ -522,7 +531,11 @@ void ReadOFMFromFile(data_t ***ofm){
 	data_t temp[outChannel][outRow][outCol];
 	FILE *latfile;
 
-	sprintf(buff,"%s","ofm.dat");
+#ifndef TEST_CASE
+		sprintf(buff,"%s","ofm.dat");
+#else
+		sprintf(buff,"%s","ofm_1.dat");
+#endif
 	latfile=fopen(buff,"r");
 	fread(&(temp[0][0][0]),sizeof(data_t),outRow*outCol*outChannel,latfile);
 	fclose(latfile);
