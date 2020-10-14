@@ -3,6 +3,7 @@ import struct
 import numpy as np
 import conv_operation as co
 import time
+import pickle
 
 from math import floor, ceil
 from pynq import Xlnk
@@ -17,7 +18,7 @@ class Module(object):
 
 	# singlton for Hardware Instance
 	class HardwareInit:
-		def __init__(self):
+		def __init__(self, img_height, img_width, img_channel):
 			self.init_config()
 			print("Initialize Hardware...: load bitstream")
 			self.xlnk = Xlnk()
@@ -28,6 +29,15 @@ class Module(object):
 			# self.core1 = self.overlay.DoCompute_1
 
 			# allocate buffer for input image
+			self.img_height = img_height
+			self.img_width = img_width
+			self.img_channel = img_channel
+
+			if self.img_channel % self.WORD_LENGTH != 0:
+				self.img_channel += (self.WORD_LENGTH - (self.img_channel%self.WORD_LENGTH))
+
+			self.buffer_depth = int(ceil((self.img_channel*self.img_height*self.img_width)/self.WORD_LENGTH))
+
 			self.input_buff = self.xlnk.cma_array(\
 				shape=(self.buffer_depth, self.WORD_LENGTH), \
 				dtype=np.uint8)
@@ -45,23 +55,15 @@ class Module(object):
 			self.Tr = int(config["PEConfig"]["Tr"])
 			self.Tc = int(config["PEConfig"]["Tc"])
 
-			self.img_height = int(config["DataConfig"]["image_height"])
-			self.img_width = int(config["DataConfig"]["image_width"])
-			self.img_channel = int(config["DataConfig"]["image_channel"])
-			
 			self.WORD_LENGTH = int(ceil(self.data_width/self.precision))
 
-			if self.img_channel % self.WORD_LENGTH != 0:
-				self.img_channel += (self.WORD_LENGTH - (self.img_channel%self.WORD_LENGTH))
-
-			self.buffer_depth = int(ceil((self.img_channel*self.img_height*self.img_width)/self.WORD_LENGTH))
 			print("Initialize configuration...: done") 
 
 	
-	def __init__(self):
+	def __init__(self, img_height, img_width, img_channel):
 
 		if Module.hardware_instance is None:
-			Module.hardware_instance = Module.HardwareInit()
+			Module.hardware_instance = Module.HardwareInit(img_height, img_width, img_channel)
 
 		self.core0 = Module.hardware_instance.core0
 		# self.core1 = Module.hardware_instance.core1
@@ -127,7 +129,6 @@ class Module(object):
 		def float_to_byte(f):
 			return struct.pack('f', f)
 
-		print(type(float_to_byte(multiplier)))
 		self.core0.write(0x10, ifm_buff.physical_address)
 		self.core0.write(0x18, ofm_buff.physical_address)
 		self.core0.write(0x20, wgt_buff.physical_address)
@@ -152,6 +153,17 @@ class Module(object):
 		while( isready == 1 ):
 			isready = self.core0.read(0x00)
 		
+	def init_weight(self, param_path):
+		stat_dict = pickle.load(open(param_path, "rb"))
+		param_list = list(stat_dict.values())
+
+		for l_idx in range(len(self.layers)):
+			self.layers[l_idx].weight_data = param_list[l_idx]['qweight'].astype(np.uint8)
+			self.layers[l_idx].multiplier = param_list[l_idx]['scale']
+			self.layers[l_idx].zp_x = param_list[l_idx]['x_zeropoint']
+			self.layers[l_idx].zp_w = param_list[l_idx]['w_zeropoint']
+			self.layers[l_idx].zp_x_next = param_list[l_idx]['xnext_zeropoint']
+
 	def load_parameters(self):
 		if self.layers is None:
 			raise("Network layers are not initialized")
@@ -193,8 +205,6 @@ class Module(object):
 					.reshape((int(raw_image.shape[2]/self.Ti), imgH, imgW, int((self.Ti/self.WORD_LENGTH)), self.WORD_LENGTH))\
 					.reshape(-1, self.WORD_LENGTH)
 
-		print(raw_image)
-
 		np.copyto(self.input_buff, raw_image)
 
 	"""
@@ -222,7 +232,7 @@ class Module(object):
 
 		print("shape of wgt: ", wgt.shape)
 		wgt_tmp = np.transpose(\
-						wgt.reshape((int(ceil(out_channel/self.To)), self.To, int(ceil(in_channel/self.Ti)), self.Ti, kerH, kerW)), \
+					wgt.reshape((int(ceil(out_channel/self.To)), self.To, int(ceil(in_channel/self.Ti)), self.Ti, kerH, kerW)), \
 						(0,2,1,4,5,3))\
 					.reshape((int(ceil(out_channel/self.To)), int(ceil(in_channel/self.Ti)), self.To, kerH, kerW,int(self.Ti/self.WORD_LENGTH),self.WORD_LENGTH))\
 					.reshape(-1,self.WORD_LENGTH)
@@ -232,10 +242,10 @@ class Module(object):
 
 class Conv2D(Module):
 	def __init__(self, out_channel, in_channel, in_height, in_width,\
-		multiplier, zp_x, zp_w, zp_x_next,\
+		multiplier=0, zp_x=0, zp_w=0, zp_x_next=0,\
 		ker=3, s=1):
 
-		super(Conv2D, self).__init__()
+		super(Conv2D, self).__init__(in_height, in_width, in_channel)
 
 		self.type = "conv"
 		self.out_channel = out_channel
@@ -279,9 +289,9 @@ class Conv2D(Module):
 
 class Conv2DPool(Module):
 	def __init__(self, out_channel, in_channel, in_height, in_width,\
-		multiplier, zp_x, zp_w, zp_x_next,\
+		multiplier=0, zp_x=0, zp_w=0, zp_x_next=0,\
 		ker=3, s=1, poolWin = 2):
-		super(Conv2DPool, self).__init__()
+		super(Conv2DPool, self).__init__(in_height, in_width, in_channel)
 		
 		self.type = "conv"
 		self.out_channel = out_channel
@@ -324,8 +334,8 @@ class Conv2DPool(Module):
 		return self.ofm_buff
 
 class Linear(Module):
-	def __init__(self, out_channel, in_channel):
-		super(Linear, self).__init__()
+	def __init__(self, out_channel, in_channel, multiplier=0, zp_x=0, zp_w=0, zp_x_next=0):
+		super(Linear, self).__init__(1, 1, in_channel)
 
 		self.type = "linear"
 		self.out_channel = out_channel
@@ -337,6 +347,11 @@ class Linear(Module):
 		self.ker = 1
 		self.weight_shape = (out_channel, in_channel, 1, 1)
 		self.weight_data = None
+
+		self.multiplier = multiplier
+		self.zp_x = zp_x
+		self.zp_w = zp_w
+		self.zp_x_next = zp_x_next
 
 		# self.ofm_buff, self.wgt_buff = \
 		# self.mem_alloc(max(out_channel, self.To)\
@@ -350,7 +365,7 @@ class Linear(Module):
 
 class Flatten(Module):
 	def __init__(self, in_height, in_width, in_channel):
-		super(Flatten, self).__init__()
+		super(Flatten, self).__init__(in_height, in_width, in_channel)
 		
 		self.type = "flatten"
 		self.in_height = in_height
