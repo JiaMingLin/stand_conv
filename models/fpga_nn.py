@@ -157,12 +157,22 @@ class Module(object):
 		stat_dict = pickle.load(open(param_path, "rb"))
 		param_list = list(stat_dict.values())
 
-		for l_idx in range(len(self.layers)):
-			self.layers[l_idx].weight_data = param_list[l_idx]['qweight'].astype(np.uint8)
-			self.layers[l_idx].multiplier = param_list[l_idx]['scale']
-			self.layers[l_idx].zp_x = param_list[l_idx]['x_zeropoint']
-			self.layers[l_idx].zp_w = param_list[l_idx]['w_zeropoint']
-			self.layers[l_idx].zp_x_next = param_list[l_idx]['xnext_zeropoint']
+		l_idx = 0
+		for l in self.layers:
+			if l.type not in ['conv', 'linear']:
+				continue
+			if l.quantize is True:
+				l.weight_data = param_list[l_idx]['qweight'].astype(np.uint8)
+				l.multiplier = param_list[l_idx]['scale']
+				l.zp_x = param_list[l_idx]['x_zeropoint']
+				l.zp_w = param_list[l_idx]['w_zeropoint']
+				l.zp_x_next = param_list[l_idx]['xnext_zeropoint']
+			else:
+				l.weight_data = param_list[l_idx]['qweight']
+				l.multiplier = param_list[l_idx]['x_scale']
+				l.zp_x = param_list[l_idx]['x_zeropoint']
+				
+			l_idx+=1
 
 	def load_parameters(self):
 		if self.layers is None:
@@ -264,6 +274,8 @@ class Conv2D(Module):
 		self.zp_w = zp_w
 		self.zp_x_next = zp_x_next
 
+		self.quantize = True
+
 		self.ofm_buff, self.wgt_buff = \
 		self.mem_alloc(max(out_channel, self.To)\
 			, max(in_channel, self.Ti), self.out_height, self.out_width, ker)
@@ -311,6 +323,8 @@ class Conv2DPool(Module):
 		self.zp_w = zp_w
 		self.zp_x_next = zp_x_next
 
+		self.quantize = True
+
 		self.ofm_buff, self.wgt_buff = \
 		self.mem_alloc(max(out_channel, self.To)\
 			, max(in_channel, self.Ti), self.out_height, self.out_width, ker)
@@ -334,7 +348,7 @@ class Conv2DPool(Module):
 		return self.ofm_buff
 
 class Linear(Module):
-	def __init__(self, out_channel, in_channel, multiplier=0, zp_x=0, zp_w=0, zp_x_next=0):
+	def __init__(self, out_channel, in_channel, multiplier=0, zp_x=0, zp_w=0, zp_x_next=0, quantize=True):
 		super(Linear, self).__init__(1, 1, in_channel)
 
 		self.type = "linear"
@@ -353,6 +367,8 @@ class Linear(Module):
 		self.zp_w = zp_w
 		self.zp_x_next = zp_x_next
 
+		self.quantize = quantize
+
 		# self.ofm_buff, self.wgt_buff = \
 		# self.mem_alloc(max(out_channel, self.To)\
 		# 	, max(in_channel, self.Ti), self.out_height, self.out_width, self.ker)
@@ -361,7 +377,13 @@ class Linear(Module):
 		print("executing Fully Connected Layer")
 		# feature: (1, in_channel * in_height * in_width)
 		# wgt: (out_channel, in_channel * in_height * in_width)
-		return co.sw_linear(feature, self.weight_data)
+		if self.quantize:
+			return co.sw_linear_quant(feature, self.weight_data, \
+				self.multiplier, self.zp_x, self.zp_w, self.zp_x_next)
+		else:
+			# dequantize
+			deq_feature = self.multiplier*(feature.astype(np.float32)-self.zp_x)
+			return co.sw_linear(deq_feature, self.weight_data)
 
 class Flatten(Module):
 	def __init__(self, in_height, in_width, in_channel):

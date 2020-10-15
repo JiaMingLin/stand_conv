@@ -249,7 +249,7 @@ void WriteOutput(
 	int wordOffset = offset;
 
 	psum_t buffer[To];
-#pragma HLS ARRAY_PARTITION variable=buffer dim=0 complete
+#pragma HLS ARRAY_RESHAPE variable=buffer dim=0 complete
 
 	if(poolWin == 1){
 		// for the current tile
