@@ -41,6 +41,10 @@ void DoCompute(
 #pragma HLS INTERFACE s_axilite port=zpX bundle=CTRL_BUS
 #pragma HLS INTERFACE s_axilite port=zpXNext bundle=CTRL_BUS
 
+//	inRow = 64; inCol = 64; inChannel = 128; outChannel = 128; Tr = 32; Tc = 32; kerSize = 3; stride = 1; poolWin = 1;
+
+
+
 	uintTi act[MAX_TILE_IN_HEIGHT][MAX_TILE_IN_WIDTH];
 	uintTi wgt[MAX_KERNEL_SIZE][MAX_KERNEL_SIZE][To];
 
@@ -70,12 +74,12 @@ void DoCompute(
 
 	// loop order at tile level: row major
 	// TODO: comparing with channel major on tile ordering level
-	for(int tidOut = 0; tidOut < tileNumOut; tidOut++){
-		for(int tidY = 0; tidY < tileNumY; tidY++){
-			for(int tidX = 0; tidX < tileNumX; tidX++){
+	CONV_TO: for(int tidOut = 0; tidOut < tileNumOut; tidOut++){
+		CONV_TR: for(int tidY = 0; tidY < tileNumY; tidY++){
+			CONV_TC: for(int tidX = 0; tidX < tileNumX; tidX++){
 				// psum initialize
 				InitPSUM<psum_t>(psum_output);
-				for(int tidIn = 0; tidIn < tileNumIn; tidIn++){
+				CONV_TI: for(int tidIn = 0; tidIn < tileNumIn; tidIn++){
 
 					anchorY = tidY * Tr - padding;
 					anchorX = tidX * Tc - padding;
@@ -140,7 +144,7 @@ void LoadActivation(
 
 	for(int i = 0; i < inTr; i++){
 		for(int j = 0; j < inTc; j++){
-#pragma HLS PIPELINE II = 2
+#pragma HLS PIPELINE II = 1
 			int lineOffset = (offset + j)*WORDS_PER_LINE;
 			if(notBoundary(i,j,anchorY,anchorX,inRow,inCol)){
 #ifdef ULTRA96
@@ -302,7 +306,8 @@ data_t scale(psum_t result, float multiplier, data_t zpXNext){
 
 void WriteDRAM(
 	uint128 *ofm, psum_t buffer[To],
-	int ptr, float multiplier, data_t zpXNext){
+	int ptr, float multiplier, data_t zpXNext
+	){
 #pragma HLS INLINE
 #pragma HLS ALLOCATION instances=scale limit=16 function
 

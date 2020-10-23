@@ -25,9 +25,9 @@ data_t ***Init3DArray(int height, int width, int channel){
 int main(){
 
 	srand(30);
-	const int inRow = 32, inCol = 32;
+	const int inRow = 8, inCol = 8;
 	const int Tr = 8, Tc = 8;
-	const int inChannel=32, outChannel=32;
+	const int inChannel=16, outChannel=32;
 	const int kerSize = 3;
 	const int stride = 1;
 	const int poolWin = 1;

@@ -25,12 +25,12 @@ using namespace hls;
 #define MAX_TILE_OUT_WIDTH 3
 
 #else
-#define MAX_TILE_OUT_HEIGHT 48
-#define MAX_TILE_OUT_WIDTH 48
+#define MAX_TILE_OUT_HEIGHT 32
+#define MAX_TILE_OUT_WIDTH 32
 #endif
 
-#define MAX_STRIDE 2
-#define MAX_KERNEL_SIZE 7
+#define MAX_STRIDE 1
+#define MAX_KERNEL_SIZE 3
 #define MAX_TILE_IN_HEIGHT MAX_TILE_OUT_HEIGHT*MAX_STRIDE + (MAX_KERNEL_SIZE-MAX_STRIDE)
 #define MAX_TILE_IN_WIDTH MAX_TILE_OUT_WIDTH*MAX_STRIDE + (MAX_KERNEL_SIZE-MAX_STRIDE)
 
@@ -59,8 +59,8 @@ typedef ap_ufixed<8,8,AP_RND_CONV,AP_SAT> clamp_round_t;
 //typedef ap_fixed<PREC,8> psum_t;
 
 typedef ap_uint<DATAWIDTH> uint128;
-typedef ap_uint<Ti*WORD_LENGTH> uintTi;
-typedef ap_uint<To*WORD_LENGTH> uintTo;
+typedef ap_uint<Ti*PREC> uintTi;
+typedef ap_uint<To*PREC> uintTo;
 typedef ap_uint<To*ACC_PREC> uintAcc;
 
 /*

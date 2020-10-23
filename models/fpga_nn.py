@@ -136,7 +136,7 @@ class Module(object):
 		self.core0.write(0x30, int(in_width))
 		self.core0.write(0x38, int(in_channel))
 		self.core0.write(0x40, int(out_channel))
-		self.core0.write(0x48, self.Tr)
+		self.core0.write(0x48, self.Tr if self.Tr < in_height)
 		self.core0.write(0x50, self.Tc)
 		self.core0.write(0x58, ker)
 		self.core0.write(0x60, s)
@@ -348,7 +348,8 @@ class Conv2DPool(Module):
 		return self.ofm_buff
 
 class Linear(Module):
-	def __init__(self, out_channel, in_channel, multiplier=0, zp_x=0, zp_w=0, zp_x_next=0, quantize=True):
+	def __init__(self, out_channel, in_channel, \
+		multiplier=0, zp_x=0, zp_w=0, zp_x_next=0, quantize=True):
 		super(Linear, self).__init__(1, 1, in_channel)
 
 		self.type = "linear"
@@ -359,7 +360,7 @@ class Linear(Module):
 		self.out_height = 1
 		self.out_width = 1
 		self.ker = 1
-		self.weight_shape = (out_channel, in_channel, 1, 1)
+		self.weight_shape = (out_channel, in_channel)
 		self.weight_data = None
 
 		self.multiplier = multiplier
