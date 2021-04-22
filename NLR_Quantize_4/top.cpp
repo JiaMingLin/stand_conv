@@ -21,7 +21,9 @@ void DoCompute(
 		uint128 *raw_wgt,
 		int inRow, int inCol, int inChannel, int outChannel,
 		int Tr, int Tc, int kerSize, int stride, int poolWin,
-		data_t zpX, data_t zpW, data_t zpXNext, data_t n, ap_uint<FIXED_BIT> int_m0){
+		data_t zpX, data_t zpW, data_t zpXNext, data_t n, ap_uint<FIXED_BIT> int_m0,
+		int tileNumX, int tileNumY, int tileNumIn, int tileNumOut,
+		int outRow, int outCol, int outTr, int outTc){
 
 #pragma HLS INTERFACE m_axi depth=4096 port=ifm offset=slave bundle=INPUT
 #pragma HLS INTERFACE m_axi depth=2304 port=raw_wgt offset=slave  bundle=INPUT
@@ -42,18 +44,28 @@ void DoCompute(
 #pragma HLS INTERFACE s_axilite port=n bundle=CTRL_BUS
 #pragma HLS INTERFACE s_axilite port=int_m0 bundle=CTRL_BUS
 
+#pragma HLS INTERFACE s_axilite port=tileNumX bundle=CTRL_BUS
+#pragma HLS INTERFACE s_axilite port=tileNumY bundle=CTRL_BUS
+#pragma HLS INTERFACE s_axilite port=tileNumIn bundle=CTRL_BUS
+#pragma HLS INTERFACE s_axilite port=tileNumOut bundle=CTRL_BUS
+
+#pragma HLS INTERFACE s_axilite port=outRow bundle=CTRL_BUS
+#pragma HLS INTERFACE s_axilite port=outCol bundle=CTRL_BUS
+#pragma HLS INTERFACE s_axilite port=outTr bundle=CTRL_BUS
+#pragma HLS INTERFACE s_axilite port=outTc bundle=CTRL_BUS
+
 //	inRow = 64; inCol = 64; inChannel = 128; outChannel = 128; Tr = 32; Tc = 32; kerSize = 3; stride = 1; poolWin = 1;
 
 	uintTi act[MAX_TILE_IN_HEIGHT][MAX_TILE_IN_WIDTH];
 	uintTi wgt[MAX_KERNEL_SIZE][MAX_KERNEL_SIZE][To];
 
 	psum_t psum_output[MAX_TILE_OUT_HEIGHT][MAX_TILE_OUT_WIDTH][To];
-#pragma HLS ARRAY_RESHAPE variable=psum_output complete dim=3
+#pragma HLS ARRAY_PARTITION variable=psum_output complete dim=3
 
-	int tileNumX = divide_ceil(inCol, Tc*stride);
-	int tileNumY = divide_ceil(inRow, Tr*stride);
-	int tileNumIn = divide_ceil(inChannel, Ti);
-	int tileNumOut = divide_ceil(outChannel, To);
+//	int tileNumX = divide_ceil(inCol, Tc*stride);
+//	int tileNumY = divide_ceil(inRow, Tr*stride);
+//	int tileNumIn = divide_ceil(inChannel, Ti);
+//	int tileNumOut = divide_ceil(outChannel, To);
 
 	int anchorX = 0, anchorY = 0, offset = 0;
 
@@ -64,11 +76,11 @@ void DoCompute(
 //	// position in the tile plane
 //	int offset = anchorY*inCol + anchorX + tidIn*inRow*inCol;
 
-	int inTc = Tc * stride + (kerSize-stride);   // inTc = inTr = 5 while testing
-	int inTr = Tr * stride + (kerSize-stride);
-	int outTc = Tc;
-	int outTr = Tr;
-	int padding = (kerSize % 2 == 0)? kerSize/2: (kerSize-1)/2;
+	int inTc = Tc + 2;//* stride + (kerSize-stride);   // inTc = inTr = 5 while testing
+	int inTr = Tr + 2;//* stride + (kerSize-stride);
+//	int outTc = Tc;
+//	int outTr = Tr;
+	int padding = 1;//(kerSize % 2 == 0)? kerSize/2: (kerSize-1)/2;
 	int enableBit = 0;
 
 	// loop order at tile level: row major
@@ -121,7 +133,8 @@ void DoCompute(
 					tidY, tidX, tidOut,
 					Tr, Tc, inRow, inCol,
 					poolWin,
-					n, int_m0);
+					n, int_m0,
+					outRow, outCol, outTr, outTc);
 
 			}
 		}
@@ -237,15 +250,16 @@ void WriteOutput(
 		int tidY, int tidX, int tidOut,
 		int Tr, int Tc, int row, int column,
 		int poolWin,
-		data_t n, ap_uint<FIXED_BIT> int_m0
+		data_t n, ap_uint<FIXED_BIT> int_m0,
+		int outRow, int outCol, int outTr, int outTc
 		){
 
-	int outRow = divide_ceil(row, poolWin);
-	int outCol = divide_ceil(column, poolWin);
+//	int outRow = divide_ceil(row, poolWin);
+//	int outCol = divide_ceil(column, poolWin);
 	int panelSize = outRow*outCol;
 
-	int outTr = divide_ceil(Tr, poolWin);
-	int outTc = divide_ceil(Tc, poolWin);
+//	int outTr = divide_ceil(Tr, poolWin);
+//	int outTc = divide_ceil(Tc, poolWin);
 
 	// output tile: row major, tile level
 	int offset = tidOut*panelSize*(To/WORD_LENGTH) // plane level
@@ -255,7 +269,7 @@ void WriteOutput(
 	int wordOffset = offset;
 
 	psum_t buffer[To];
-#pragma HLS ARRAY_RESHAPE variable=buffer dim=0 complete
+#pragma HLS ARRAY_PARTITION variable=buffer dim=0 complete
 
 	if(poolWin == 1){
 		// for the current tile

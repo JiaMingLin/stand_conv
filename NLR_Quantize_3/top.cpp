@@ -23,8 +23,8 @@ void DoCompute(
 		int Tr, int Tc, int kerSize, int stride, int poolWin,
 		float multiplier, data_t zpX, data_t zpW, data_t zpXNext){
 
-#pragma HLS INTERFACE m_axi depth=4096 port=ifm offset=slave bundle=INPUT
-#pragma HLS INTERFACE m_axi depth=2304 port=raw_wgt offset=slave  bundle=INPUT
+#pragma HLS INTERFACE m_axi depth=4096 port=ifm offset=slave bundle=IFM_INPUT
+#pragma HLS INTERFACE m_axi depth=2304 port=raw_wgt offset=slave  bundle=WGT_INPUT
 #pragma HLS INTERFACE m_axi depth=4096 port=ofm offset=slave  bundle=OUTPUT
 #pragma HLS INTERFACE s_axilite port=return bundle=CTRL_BUS
 #pragma HLS INTERFACE s_axilite port=inRow bundle=CTRL_BUS

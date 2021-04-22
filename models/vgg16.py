@@ -5,8 +5,8 @@ from fpga_nn import config
 
 class SimpleNet(fpga_nn.Module):
 
-	def __init__(self, layers, params_path = None):
-		super(SimpleNet, self).__init__()
+	def __init__(self, layers,img_height, img_width, img_channel, params_path = None):
+		super(SimpleNet, self).__init__(img_height, img_width, img_channel)
 		self.layers = layers
 		self.params_path = params_path
 
@@ -24,8 +24,8 @@ class SimpleNet(fpga_nn.Module):
 
 def make_layers():
 
-	in_height = int(config["DataConfig"]["image_height"])
-	in_width = int(config["DataConfig"]["image_width"])
+	in_height = 256
+	in_width = 256
 	in_channel = 3
 
 	layers = []
@@ -49,9 +49,9 @@ def make_layers():
 	layers += [fpga_nn.Conv2DPool(512, 512, int(in_height/16), int(in_width/16), ker = 3, poolWin = 2)]
 
 	# conv output size = (8,8,512)
-	layers += [fpga_nn.Flatten(int(in_height/32), int(in_width/32), 512)]
-	layers += [fpga_nn.Linear(4096,int(in_height/32)*int(in_width/32)*512)]
-	layers += [fpga_nn.Linear(101,4096)]
+	# layers += [fpga_nn.Flatten(int(in_height/32), int(in_width/32), 512)]
+	# layers += [fpga_nn.Linear(4096,int(in_height/32)*int(in_width/32)*512)]
+	# layers += [fpga_nn.Linear(101,4096)]
 
 	return layers
 
@@ -59,7 +59,7 @@ def simple_net():
 
 	layers = make_layers()
 	params_path = "params.path"
-	model = SimpleNet(layers, params_path = params_path)
+	model = SimpleNet(layers,256, 256, 3, params_path = params_path)
 
 	return model
 
@@ -69,14 +69,20 @@ if __name__ == "__main__":
 	m = simple_net()
 
 	# hardware convolution
-	in_height = int(config["DataConfig"]["image_height"])
-	in_width = int(config["DataConfig"]["image_width"])
+	in_height = 256
+	in_width = 256
 	in_channel = 3
 
 	outRow = 1; outCol = 1
 	x = np.random.randint(256, size=(in_height,in_width,in_channel), dtype=np.uint8)
+
 	output = m(x)
-	output = m(x)
+	
+	import timeit
+
+	m.verbose = False
+	timeit.timeit('m(x)', setup="from __main__ import m, x")
+	
 
 	out_channel = m.layers[-1].out_channel
 

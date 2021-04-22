@@ -114,7 +114,8 @@ void WriteOutput(
 		int tidY, int tidX, int tidOut,
 		int Tr, int Tc, int inRow, int inCol,
 		int poolWin,
-		data_t n, ap_uint<FIXED_BIT> int_m0);
+		data_t n, ap_uint<FIXED_BIT> int_m0,
+		int outRow, int outCol, int outTr, int outTc);
 
 void WriteDRAM(
 		uint128 *output, psum_t buffer[To],

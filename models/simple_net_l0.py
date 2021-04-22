@@ -31,8 +31,8 @@ def make_layers(img_channel, img_height, img_width):
 	zp_x = 7; zp_w = 128; zp_x_next = 7
 	layers = []
 	# Conv(output channel, input channel, input height, input width, kerSize, stride)
-	layers += [fpga_nn.Conv2DPool(32, img_channel, img_height, img_width, \
-				multiplier, zp_x, zp_w, zp_x_next, ker = 3, poolWin = 2)]
+	layers += [fpga_nn.Conv2D(32, img_channel, img_height, img_width, \
+				multiplier, zp_x, zp_w, zp_x_next, ker = 3)]
 	# layers += [fpga_nn.Conv2DPool(32, 16, in_height, in_width, ker = 3, poolWin = 2)]
 	# layers += [fpga_nn.Conv2DPool(64, 32, int(in_height/2), int(in_width/2), ker = 3, poolWin = 2)]
 	# layers += [fpga_nn.Flatten(int(in_height/4), int(in_width/4), 64)]

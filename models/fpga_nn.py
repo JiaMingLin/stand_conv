@@ -77,31 +77,40 @@ class Module(object):
 		self.To = Module.hardware_instance.To
 
 		self.layers = None
+		self.verbose = True
 
 	def __call__(self, raw_image):
 		self._convert_raw_image_to_buffer(raw_image)
-		print("executing layers...")
+		if self.verbose:
+			print("executing layers...")
 
-		hw_begin = time.perf_counter()
-		fm = self.layers[0](self.input_buff)
-		print("layer {}, IFM size = {}, WGT size = {}, OFM size = {}, time = {}(ms)"\
-			.format(0, \
-				(self.layers[0].in_height, self.layers[0].in_width, self.layers[0].in_channel),\
-				self.layers[0].weight_shape, \
-				(self.layers[0].out_height, self.layers[0].out_width, self.layers[0].out_channel),\
-				(time.perf_counter() - hw_begin)*1000))
-
-		cnt = 1
-		for l in self.layers[1:]:
 			hw_begin = time.perf_counter()
-			fm = l(fm)
+			fm = self.layers[0](self.input_buff)
 			print("layer {}, IFM size = {}, WGT size = {}, OFM size = {}, time = {}(ms)"\
-			.format(cnt, \
-				(l.in_height, l.in_width, l.in_channel),\
-				l.weight_shape, \
-				(l.out_height, l.out_width, l.out_channel),\
-				(time.perf_counter() - hw_begin)*1000))
-			cnt+=1
+				.format(0, \
+					(self.layers[0].in_height, self.layers[0].in_width, self.layers[0].in_channel),\
+					self.layers[0].weight_shape, \
+					(self.layers[0].out_height, self.layers[0].out_width, self.layers[0].out_channel),\
+					(time.perf_counter() - hw_begin)*1000))
+
+			cnt = 1
+			for l in self.layers[1:]:
+				hw_begin = time.perf_counter()
+				fm = l(fm)
+				print("layer {}, IFM size = {}, WGT size = {}, OFM size = {}, time = {}(ms)"\
+				.format(cnt, \
+					(l.in_height, l.in_width, l.in_channel),\
+					l.weight_shape, \
+					(l.out_height, l.out_width, l.out_channel),\
+					(time.perf_counter() - hw_begin)*1000))
+				cnt+=1
+		else:
+			fm = self.layers[0](self.input_buff)
+			cnt = 1
+			for l in self.layers[1:]:
+				hw_begin = time.perf_counter()
+				fm = l(fm)
+				cnt+=1
 
 		return fm
 
@@ -126,8 +135,13 @@ class Module(object):
 	 multiplier, zp_x, zp_w, zp_x_next,\
 	 ker=3, s=1, poolWin=1):
 
-		def float_to_byte(f):
-			return struct.pack('f', f)
+		def find_m0(m):
+			n = 0
+			m0 = m
+			while (m0<0.5):
+				n = n+1
+				m0 = (2**n) * m
+			return m0, n
 
 		self.core0.write(0x10, ifm_buff.physical_address)
 		self.core0.write(0x18, ofm_buff.physical_address)
@@ -136,15 +150,22 @@ class Module(object):
 		self.core0.write(0x30, int(in_width))
 		self.core0.write(0x38, int(in_channel))
 		self.core0.write(0x40, int(out_channel))
-		self.core0.write(0x48, self.Tr if self.Tr < in_height)
-		self.core0.write(0x50, self.Tc)
+		# TODO: when input size < 3, this might cause little result
+		self.core0.write(0x48, self.Tr if in_height > self.Tr else int(in_height) if in_height > 4 else 4)
+		self.core0.write(0x50, self.Tc if in_width > self.Tc else int(in_width) if in_width > 4 else 4)
 		self.core0.write(0x58, ker)
 		self.core0.write(0x60, s)
 		self.core0.write(0x68, poolWin)
-		self.core0.write(0x70, float_to_byte(multiplier))
-		self.core0.write(0x78, zp_x)
-		self.core0.write(0x80, zp_w)
-		self.core0.write(0x88, zp_x_next)
+		self.core0.write(0x70, zp_x)
+		self.core0.write(0x78, zp_w)
+		self.core0.write(0x80, zp_x_next)
+
+		# efficient re-scaling in quantization
+		m0, n = find_m0(multiplier)
+		bits = 32
+		int_m0 = int(np.round(m0*(2**bits)))#.astype(np.uint32)
+		self.core0.write(0x88, n)
+		self.core0.write(0x90, int_m0)
 
 	def execute(self):
 		self.core0.write(0x00, 1)
@@ -252,7 +273,7 @@ class Module(object):
 
 class Conv2D(Module):
 	def __init__(self, out_channel, in_channel, in_height, in_width,\
-		multiplier=0, zp_x=0, zp_w=0, zp_x_next=0,\
+		multiplier=1, zp_x=0, zp_w=0, zp_x_next=0,\
 		ker=3, s=1):
 
 		super(Conv2D, self).__init__(in_height, in_width, in_channel)
@@ -281,7 +302,9 @@ class Conv2D(Module):
 			, max(in_channel, self.Ti), self.out_height, self.out_width, ker)
 
 	def __call__(self, ifm_buff):
-		print("executing conv2d")
+		# if self.verbose:
+		# 	print("executing conv2d")
+
 		self.ifm_buff = ifm_buff
 		self.setting(self.ofm_buff,\
 					 self.ifm_buff,\
@@ -301,7 +324,7 @@ class Conv2D(Module):
 
 class Conv2DPool(Module):
 	def __init__(self, out_channel, in_channel, in_height, in_width,\
-		multiplier=0, zp_x=0, zp_w=0, zp_x_next=0,\
+		multiplier=1, zp_x=0, zp_w=0, zp_x_next=0,\
 		ker=3, s=1, poolWin = 2):
 		super(Conv2DPool, self).__init__(in_height, in_width, in_channel)
 		
@@ -330,7 +353,8 @@ class Conv2DPool(Module):
 			, max(in_channel, self.Ti), self.out_height, self.out_width, ker)
 	
 	def __call__(self, ifm_buff):
-		print("executing conv2dPool")
+		# if self.verbose:
+		# 	print("executing conv2dPool")
 		self.ifm_buff = ifm_buff
 		self.setting(self.ofm_buff,\
 					 self.ifm_buff,\
@@ -349,7 +373,7 @@ class Conv2DPool(Module):
 
 class Linear(Module):
 	def __init__(self, out_channel, in_channel, \
-		multiplier=0, zp_x=0, zp_w=0, zp_x_next=0, quantize=True):
+		multiplier=1, zp_x=0, zp_w=0, zp_x_next=0, quantize=True):
 		super(Linear, self).__init__(1, 1, in_channel)
 
 		self.type = "linear"
