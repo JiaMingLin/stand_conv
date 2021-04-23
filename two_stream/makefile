@@ -1,6 +1,6 @@
 HLS_ROOT := /home/jiaming/workplace/stand_conv/NLR_Quantize_3
 
-all: static
+all: static bitstream
 	@echo
 	@tput setaf 2 ; echo "Built successfully!"; tput sgr0;
 	@echo
@@ -13,8 +13,8 @@ static:
 # dynamic:
 # 	vivado -mode batch -source create_pr.tcl -notrace
 
-# bitstream:
-# 	vivado -mode batch -source build_bitstream.tcl -notrace
+bitstream:
+	vivado -mode batch -source build_bitstream.tcl -notrace
 
 # check_timing:
 # 	vivado -mode batch -source check_$(overlay_name).tcl -notrace
