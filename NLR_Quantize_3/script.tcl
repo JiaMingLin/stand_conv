@@ -9,8 +9,8 @@ set part [lindex $argv 4]
 
 open_project -reset HLS_PROJ
 set_top DoCompute
-add_files ${hls_dir}/top.cpp
-add_files ${hls_dir}/top.h
+add_files top.cpp
+add_files top.h
 open_solution ${scale}
 set_part ${part} -tool vivado
 create_clock -period 5 -name default

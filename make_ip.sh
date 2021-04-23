@@ -16,7 +16,7 @@ elif [ "$2" = "large" ]; then
 fi
 
 cd $HLS_ROOT
-vivado_hls -f $HLS_ROOT/script.tcl $HLS_ROOT/ $SCALE $PART
+vivado_hls -f script.tcl $HLS_ROOT/ $SCALE $PART
 
 REPO_PATH=$PROJECT_PATH/repo/$SCALE
 IP_PATH=$PROJECT_PATH/$SCALE/impl/ip/xilinx_com_hls_DoCompute_1_0.zip
